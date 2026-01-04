@@ -1,0 +1,145 @@
+{
+  "description": "Golden regression test set for TTS quality and correctness",
+  "version": "1.0.0",
+  "tests": [
+    {
+      "id": "test_001",
+      "text": "Hello, world.",
+      "category": "basic",
+      "description": "Basic greeting"
+    },
+    {
+      "id": "test_002",
+      "text": "The number 42 is the answer.",
+      "category": "numbers",
+      "description": "Number pronunciation"
+    },
+    {
+      "id": "test_003",
+      "text": "Dr. Sarah Johnson, Ph.D., works at MIT.",
+      "category": "names_titles",
+      "description": "Titles and proper names"
+    },
+    {
+      "id": "test_004",
+      "text": "What time is it? It's 3:45 PM.",
+      "category": "punctuation",
+      "description": "Question marks and time format"
+    },
+    {
+      "id": "test_005",
+      "text": "The price is $19.99, not $20.00!",
+      "category": "currency",
+      "description": "Currency symbols and decimals"
+    },
+    {
+      "id": "test_006",
+      "text": "I can't believe it's not butter—it's amazing!",
+      "category": "contractions",
+      "description": "Contractions and em dashes"
+    },
+    {
+      "id": "test_007",
+      "text": "She said, \"Hello there!\" and waved.",
+      "category": "quotes",
+      "description": "Quoted speech"
+    },
+    {
+      "id": "test_008",
+      "text": "The meeting is on March 15th, 2024.",
+      "category": "dates",
+      "description": "Date format"
+    },
+    {
+      "id": "test_009",
+      "text": "Email me at john.doe@example.com or call 555-1234.",
+      "category": "contact_info",
+      "description": "Email and phone numbers"
+    },
+    {
+      "id": "test_010",
+      "text": "It's 90°F (32°C) outside today.",
+      "category": "symbols",
+      "description": "Temperature with units"
+    },
+    {
+      "id": "test_011",
+      "text": "The art of reading is not in understanding every word, but in grasping the meaning behind them.",
+      "category": "medium_length",
+      "description": "Medium sentence with complex structure"
+    },
+    {
+      "id": "test_012",
+      "text": "In the quiet moments of reflection, we find the wisdom that guides our decisions.",
+      "category": "philosophical",
+      "description": "Philosophical content"
+    },
+    {
+      "id": "test_013",
+      "text": "The quick brown fox jumps over the lazy dog. The five boxing wizards jump quickly.",
+      "category": "pangrams",
+      "description": "Classic pangrams"
+    },
+    {
+      "id": "test_014",
+      "text": "Technology evolves rapidly, yet human understanding remains constant throughout the ages.",
+      "category": "contrast",
+      "description": "Contrasting concepts"
+    },
+    {
+      "id": "test_015",
+      "text": "The journey of a thousand miles begins with a single step. This ancient wisdom reminds us that every great accomplishment starts with the decision to try.",
+      "category": "long_sentence",
+      "description": "Long sentence with multiple clauses"
+    },
+    {
+      "id": "test_016",
+      "text": "Reading is not just about consuming words; it is about engaging with ideas, questioning assumptions, and expanding our worldview.",
+      "category": "semicolon",
+      "description": "Semicolon usage"
+    },
+    {
+      "id": "test_017",
+      "text": "One... two... three... Go!",
+      "category": "ellipsis",
+      "description": "Ellipsis and exclamation"
+    },
+    {
+      "id": "test_018",
+      "text": "Mr. & Mrs. Smith (ages 35 & 32) live at 123 Main St., Apt. 4B.",
+      "category": "complex_address",
+      "description": "Complex address format with abbreviations"
+    },
+    {
+      "id": "test_019",
+      "text": "The conference runs from 9:00 AM to 5:30 PM on December 25th, 2024.",
+      "category": "time_range",
+      "description": "Time range with date"
+    },
+    {
+      "id": "test_020",
+      "text": "When we read thoughtfully, we enter into a dialogue with the author, considering their perspective while maintaining our own critical thinking. This active engagement transforms reading from a passive activity into an intellectual adventure that enriches our minds and broadens our horizons.",
+      "category": "very_long",
+      "description": "Very long sentence for stress testing"
+    }
+  ],
+  "validation": {
+    "expectedAudioLength": {
+      "min_bytes": 1000,
+      "max_bytes": 1000000
+    },
+    "expectedDurationRange": {
+      "min_ms_per_word": 200,
+      "max_ms_per_word": 1000
+    },
+    "qualityChecks": {
+      "no_empty_audio": true,
+      "no_clipping": true,
+      "loudness_range": {
+        "min_db": -30,
+        "max_db": 0
+      }
+    }
+  }
+}
+

@@ -1,0 +1,22 @@
+This is a sample long text for testing the TTS chunking and playback functionality. It contains more than 2000 characters to ensure proper chunking behavior. The text is designed to test how the system handles longer content, whether it properly splits the text into manageable chunks, maintains UI responsiveness during playback, and correctly manages the buffering state.
+
+When testing with this text, you should observe several key behaviors. First, the text should be automatically chunked into smaller pieces, typically around 400-1600 characters per chunk depending on the configuration. Each chunk should be processed sequentially, with the UI showing progress indicators such as "Buffering 0/3" or "Playing 1/3" depending on the total number of chunks.
+
+The NEXT button should be disabled when no chunks are buffered yet, and should become enabled once at least one chunk is ready. This ensures users cannot skip ahead before content is available. During playback, the UI should remain responsive, allowing users to interact with other parts of the application without freezing or lag.
+
+Error handling is also crucial. If any chunk fails to generate or if there's a network error, the system should gracefully exit the buffering state, show an appropriate error message, and allow the user to continue or retry. The state machine should properly transition from buffering to error, ensuring the UI never gets stuck in an infinite loading state.
+
+Memory management is another important aspect. As chunks are played, their blob URLs should be properly cleaned up to prevent memory leaks. The system should track active blob URLs and revoke them when they're no longer needed, ensuring efficient memory usage even during long playback sessions.
+
+The streaming orchestrator should handle chunk ordering correctly, playing chunks in sequence even if they arrive out of order from the server. This requires maintaining a buffer and playing chunks only when the previous chunk has finished. The progress callback should accurately reflect the current state, including buffered chunks, generated chunks, and playback status.
+
+Speed control should work seamlessly during long text playback. Users should be able to adjust playback speed without interrupting the current playback or triggering additional TTS requests. The playback rate should change in real-time, affecting the audio currently playing without requiring regeneration.
+
+Caching is also important for long texts. Previously generated chunks should be cached and reused if the same text is requested again. This reduces API costs and improves response times. The cache should be properly keyed based on text content, voice settings, and other parameters that affect audio output.
+
+The user experience should be smooth and intuitive. Progress indicators should be clear and informative, showing both buffering progress and playback progress. Error messages should be helpful and actionable, guiding users on what went wrong and how to resolve it.
+
+Testing with long texts helps identify edge cases and performance issues that might not appear with shorter content. It validates that the chunking algorithm works correctly, that the state machine handles all transitions properly, and that the UI remains responsive under load.
+
+This comprehensive testing ensures the system is robust and ready for production use, handling various scenarios gracefully and providing a reliable user experience.
+

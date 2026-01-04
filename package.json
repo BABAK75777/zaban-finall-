@@ -1,0 +1,22 @@
+{
+  "name": "zaban-tts-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "backend": "cd backend && npm run dev",
+    "dev:all": "concurrently \"npm run backend\" \"npm run dev\"",
+    "build": "npm run build --workspaces",
+    "mobile": "cd apps/mobile && npm start",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "vitest": "^1.2.0"
+  }
+}

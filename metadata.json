@@ -1,0 +1,8 @@
+{
+  "name": "ReadOnly - Judgment-Free Reading",
+  "description": "A focused reading practice app that provides high-quality AI models for shadowing practice, featuring automated audio cleanup and deterministic caching for battery-efficient learning.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}

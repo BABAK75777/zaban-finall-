@@ -1,0 +1,11 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@zaban/tts-core": ["../../packages/tts-core/src"],
+      "@zaban/tts-mobile": ["../../packages/tts-mobile/src"]
+    }
+  }
+}
+

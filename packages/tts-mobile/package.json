@@ -1,0 +1,21 @@
+{
+  "name": "@zaban/tts-mobile",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@zaban/tts-core": "workspace:*",
+    "expo-av": "~14.0.0",
+    "expo-file-system": "~17.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "typescript": "^5.5.0"
+  }
+}
+
