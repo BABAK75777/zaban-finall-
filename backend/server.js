@@ -142,16 +142,14 @@ app.options('*', cors(corsOptions));
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
-// Health check endpoint (REQUIRED)
-app.get('/health', (req, res) => {
-  const ocrKeyConfigured = isOpenAIApiKeyConfigured();
-  res.json({ 
-    ok: true,
-    ocr: {
-      enabled: true,
-      keyConfigured: ocrKeyConfigured
-    }
-  });
+// Root endpoint
+app.get("/", (req, res) => {
+  res.status(200).send("zaban-api is live ✅");
+});
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({ ok: true, service: "zaban-api" });
 });
 
 // Healthz endpoint (for Kubernetes health checks)
