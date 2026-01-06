@@ -12,7 +12,7 @@ import { sessionManager } from './ttsSessionManager.js';
 import { chunkText } from './textChunker.js';
 import { generateChunkAudio, estimateDurationMs } from './ttsChunkGenerator.js';
 import { initDb, dbReady } from './db/index.js';
-import { optionalAuth, requireAuth } from './middleware/auth.js';
+import { optionalAuth, requireAuth, requireApiKey } from './middleware/auth.js';
 import { enforceQuota, trackUsage } from './middleware/quotas.js';
 import { logAuditEvent } from './middleware/audit.js';
 import { query } from './db/index.js';
@@ -69,6 +69,15 @@ if (!OPENAI_API_KEY) {
 let openaiClient = null;
 if (OPENAI_API_KEY) {
   openaiClient = new OpenAI({ apiKey: OPENAI_API_KEY });
+}
+
+// API Key validation at startup (required in production)
+if (process.env.NODE_ENV === 'production' && !process.env.API_KEY) {
+  console.error('[API-Key] ERROR: API_KEY environment variable is required in production');
+  console.error('[API-Key] Set API_KEY in Cloud Run environment variables or Secret Manager');
+  process.exit(1);
+} else if (process.env.API_KEY) {
+  console.log('[API-Key] API key authentication enabled (length:', process.env.API_KEY.length, ')');
 }
 
 // CORS configuration - Allow frontend origin
@@ -176,11 +185,24 @@ app.get('/readyz', (req, res) => {
 // Auth routes (no auth required)
 app.use('/auth', authRoutes);
 
+// API Key authentication middleware (protects all routes except allowlisted public endpoints)
+// Mounted after public routes (/, /health, /auth) but before protected routes
+app.use(requireApiKey);
+
 // Usage/dashboard routes (auth required)
 app.use('/usage', usageRoutes);
 
 // Apply optional auth middleware (required in production, optional in dev)
 app.use(optionalAuth);
+
+// Test endpoint for API key authentication verification
+app.get('/_auth_test', (req, res) => {
+  res.json({
+    ok: true,
+    protected: true,
+    message: 'API key authentication successful'
+  });
+});
 
 // Metrics endpoint
 app.get('/tts/metrics', (req, res) => {

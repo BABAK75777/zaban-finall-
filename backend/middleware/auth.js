@@ -165,3 +165,46 @@ export async function optionalAuth(req, res, next) {
   next();
 }
 
+/**
+ * API Key authentication middleware
+ * Protects all routes except allowlisted public endpoints
+ * Uses x-api-key header and process.env.API_KEY
+ */
+const API_KEY_ALLOWLIST = new Set(['/', '/health', '/healthz', '/readyz']);
+
+export function requireApiKey(req, res, next) {
+  // Allow public endpoints
+  const path = req.path.split('?')[0]; // Remove query string for comparison
+  if (API_KEY_ALLOWLIST.has(path)) {
+    return next();
+  }
+
+  // Get API key from header (case-insensitive)
+  const providedKey = req.get('x-api-key') || req.get('X-Api-Key') || req.get('X-API-Key');
+  const expectedKey = process.env.API_KEY;
+
+  // If no API key is configured, fail in production (safety)
+  if (!expectedKey) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[API-Key] ERROR: API_KEY environment variable is required in production');
+      return res.status(500).json({
+        ok: false,
+        error: 'Configuration Error',
+        details: 'API key authentication is not properly configured'
+      });
+    }
+    // In dev, allow if no key is set (for local development)
+    console.warn('[API-Key] WARNING: API_KEY not set, allowing request in dev mode');
+    return next();
+  }
+
+  // Check if key is provided and matches
+  if (!providedKey || providedKey !== expectedKey) {
+    return res.status(401).json({
+      ok: false,
+      error: 'Unauthorized'
+    });
+  }
+
+  next();
+}
