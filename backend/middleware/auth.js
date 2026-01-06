@@ -179,9 +179,9 @@ export function requireApiKey(req, res, next) {
     return next();
   }
 
-  // Get API key from header (case-insensitive)
-  const providedKey = req.get('x-api-key') || req.get('X-Api-Key') || req.get('X-API-Key');
-  const expectedKey = process.env.API_KEY;
+  // Get API key from header (case-insensitive) and trim to avoid newline/CRLF issues
+  const providedKey = (req.get('x-api-key') || req.get('X-Api-Key') || req.get('X-API-Key') || '').trim();
+  const expectedKey = (process.env.API_KEY || '').trim();
 
   // If no API key is configured, fail in production (safety)
   if (!expectedKey) {
@@ -199,7 +199,7 @@ export function requireApiKey(req, res, next) {
   }
 
   // Check if key is provided and matches
-  if (!providedKey || providedKey !== expectedKey) {
+  if (!providedKey || !expectedKey || providedKey !== expectedKey) {
     return res.status(401).json({
       ok: false,
       error: 'Unauthorized'
