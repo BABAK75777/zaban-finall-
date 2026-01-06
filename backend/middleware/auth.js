@@ -36,8 +36,8 @@ function extractToken(req) {
  * Requires valid JWT token
  */
 export async function requireAuth(req, res, next) {
-  // Allow health checks and auth endpoints without auth
-  if (req.path === '/health' || req.path === '/healthz' || req.path === '/readyz' || req.path.startsWith('/auth/')) {
+  // Allow health checks, root endpoint, and auth endpoints without auth
+  if (req.path === '/' || req.path === '/health' || req.path === '/healthz' || req.path === '/readyz' || req.path.startsWith('/auth/')) {
     return next();
   }
 
