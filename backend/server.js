@@ -80,64 +80,51 @@ if (process.env.NODE_ENV === 'production' && !process.env.API_KEY) {
   console.log('[API-Key] API key authentication enabled (length:', process.env.API_KEY.length, ')');
 }
 
-// CORS configuration - Allow frontend origin
-const isDev = process.env.NODE_ENV !== 'production';
+// CORS configuration - Read from environment variable
+// Format: CORS_ORIGINS=http://localhost:5173,https://yourdomain.com
+const rawCorsOrigins = process.env.CORS_ORIGINS || '';
+const allowedOrigins = rawCorsOrigins
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
-/**
- * Check if origin is allowed
- * - No origin (e.g., curl, Postman, server-to-server) => allow
- * - Dev mode: allow localhost, 127.0.0.1, and LAN IPs (192.168.*, 10.*)
- * - Production: use explicit allowlist from CORS_ORIGINS env var
- */
-const isOriginAllowed = (origin) => {
-  // No origin header (e.g., curl, Postman, server-to-server) => allow
-  if (!origin) {
-    return true;
-  }
-
-  if (isDev) {
-    // Dev mode: allow localhost, 127.0.0.1, and common LAN IP ranges (both HTTP and HTTPS)
-    if (
-      origin.startsWith('http://localhost:') ||
-      origin.startsWith('https://localhost:') ||
-      origin.startsWith('http://127.0.0.1:') ||
-      origin.startsWith('https://127.0.0.1:') ||
-      origin.startsWith('http://192.168.') ||
-      origin.startsWith('https://192.168.') ||
-      origin.startsWith('http://10.') ||
-      origin.startsWith('https://10.')
-    ) {
-      return true;
-    }
-    // Log blocked origins in dev for debugging
-    console.log(`[CORS] Blocked origin in dev mode: ${origin}`);
-    return false;
-  }
-
-  // Production: use explicit allowlist from env
-  const allowedOrigins = process.env.CORS_ORIGINS
-    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'];
-
-  return allowedOrigins.includes(origin);
-};
+// Log CORS configuration at startup
+if (allowedOrigins.length > 0) {
+  console.log(`[CORS] Allowed origins: ${allowedOrigins.join(', ')}`);
+} else {
+  console.warn('[CORS] WARNING: CORS_ORIGINS not set. CORS will be restricted.');
+}
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (isOriginAllowed(origin)) {
-      callback(null, true);
-    } else {
-      const errorMsg = `Not allowed by CORS: ${origin || '(no origin)'}`;
-      if (isDev) {
-        console.error(`[CORS] ${errorMsg}`);
-        console.error(`[CORS] Allowed in dev: localhost, 127.0.0.1, 192.168.*, 10.*`);
-      }
-      callback(new Error(errorMsg));
+    // Allow non-browser clients (curl, Postman, server-to-server) - no origin header
+    if (!origin) {
+      return callback(null, true);
     }
+
+    // If no origins configured, deny in production (security)
+    if (allowedOrigins.length === 0) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error(`[CORS] Blocked: ${origin} (CORS_ORIGINS not configured)`);
+        return callback(new Error('CORS not allowed'), false);
+      }
+      // In dev, allow if not configured (for local development)
+      console.warn(`[CORS] Allowing ${origin} in dev mode (CORS_ORIGINS not set)`);
+      return callback(null, true);
+    }
+
+    // Check if origin is in allowlist
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // Origin not allowed
+    console.error(`[CORS] Blocked origin: ${origin}`);
+    return callback(new Error('CORS not allowed'), false);
   },
-  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'X-Request-Id'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-request-id', 'X-Request-Id'],
+  credentials: true,
   optionsSuccessStatus: 204, // Ensure OPTIONS returns 204
 };
 
