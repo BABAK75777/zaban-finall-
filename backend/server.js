@@ -169,7 +169,7 @@ app.get('/readyz', (req, res) => {
   });
 });
 
-// Version endpoint - returns service information
+// Version endpoint - Service information
 app.get("/version", (req, res) => {
   const commit =
     process.env.GITHUB_SHA ||
