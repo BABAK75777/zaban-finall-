@@ -1,0 +1,30 @@
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/zaban-api:$SHORT_SHA"
+      - "-f"
+      - "Dockerfile"
+      - "."
+    dir: "backend"
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "gcloud"
+    args:
+      - "run"
+      - "deploy"
+      - "zaban-api"
+      - "--image"
+      - "europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/zaban-api:$SHORT_SHA"
+      - "--region"
+      - "europe-west1"
+      - "--platform"
+      - "managed"
+      - "--quiet"
+
+images:
+  - "europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/zaban-api:$SHORT_SHA"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
