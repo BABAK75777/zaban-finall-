@@ -169,6 +169,23 @@ app.get('/readyz', (req, res) => {
   });
 });
 
+// Version endpoint - returns service information
+app.get("/version", (req, res) => {
+  const commit =
+    process.env.GITHUB_SHA ||
+    process.env.COMMIT_SHA ||
+    process.env.SOURCE_VERSION ||
+    null;
+
+  res.status(200).json({
+    service: "zaban-api",
+    revision: process.env.K_REVISION || null,
+    commit,
+    node: process.version,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Auth routes (no auth required)
 app.use('/auth', authRoutes);
 

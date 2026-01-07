@@ -170,7 +170,7 @@ export async function optionalAuth(req, res, next) {
  * Protects all routes except allowlisted public endpoints
  * Uses x-api-key header and process.env.API_KEY
  */
-const API_KEY_ALLOWLIST = new Set(['/', '/health', '/healthz', '/readyz']);
+const API_KEY_ALLOWLIST = new Set(['/', '/health', '/healthz', '/readyz', '/version']);
 
 export function requireApiKey(req, res, next) {
   // Allow public endpoints
