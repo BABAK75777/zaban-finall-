@@ -1,0 +1,2 @@
+CORS_ORIGINS: "http://localhost:19006,http://localhost:8081,http://192.168.86.190:8081"
+NODE_ENV: "production"
