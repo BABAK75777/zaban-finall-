@@ -9,6 +9,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@react-native/assets-registry": "^0.85.3",
     "@zaban/tts-core": "workspace:*",
     "@zaban/tts-mobile": "workspace:*",
     "expo": "~51.0.39",
