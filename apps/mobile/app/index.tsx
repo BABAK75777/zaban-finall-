@@ -17,7 +17,7 @@ import { MobileAudioPlayer } from '@zaban/tts-mobile';
 import { chunkText, generateChunkHash } from '@zaban/tts-core';
 import * as Haptics from 'expo-haptics';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://zaban-api-875817275251.europe-west1.run.app';
 
 export default function ReadingScreen() {
   const [text, setText] = useState('');
