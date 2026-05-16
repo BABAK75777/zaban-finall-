@@ -4,16 +4,19 @@
     "slug": "zaban-tts",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/adaptive-icon.png",
     "userInterfaceStyle": "automatic",
+
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+
     "assetBundlePatterns": [
       "**/*"
     ],
+
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.zaban.tts",
@@ -23,12 +26,15 @@
         ]
       }
     },
+
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+
       "package": "com.zaban.tts",
+
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -36,9 +42,11 @@
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
+
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/adaptive-icon.png"
     },
+
     "plugins": [
       [
         "expo-av",
@@ -47,6 +55,7 @@
         }
       ]
     ],
+
     "extra": {
       "eas": {
         "projectId": "8b37435e-cfd3-436c-8017-25e99b82bb90"
