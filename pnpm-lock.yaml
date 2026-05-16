@@ -17,6 +17,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@babel/runtime':
+        specifier: ^7.29.2
+        version: 7.29.2
       '@react-native/assets-registry':
         specifier: ^0.85.3
         version: 0.85.3
