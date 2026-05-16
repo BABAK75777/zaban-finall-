@@ -55,8 +55,8 @@ importers:
         specifier: ^7.24.0
         version: 7.29.0
       '@react-native/gradle-plugin':
-        specifier: ^0.85.3
-        version: 0.85.3
+        specifier: 0.74.87
+        version: 0.74.87
       '@types/react':
         specifier: ~18.2.0
         version: 18.2.79
@@ -1243,10 +1243,6 @@ packages:
   '@react-native/gradle-plugin@0.74.87':
     resolution: {integrity: sha512-T+VX0N1qP+U9V4oAtn7FTX7pfsoVkd1ocyw9swYXgJqU2fK7hC9famW7b3s3ZiufPGPr1VPJe2TVGtSopBjL6A==}
     engines: {node: '>=18'}
-
-  '@react-native/gradle-plugin@0.85.3':
-    resolution: {integrity: sha512-39dY2j50Q1pntejzwt3XL7vwXtrj8jcIfHq6E+gyu3jzYxZJVvMkMutQ39vSg6zinIQOX36oQDhidXUbCXzgoA==}
-    engines: {node: ^20.19.4 || ^22.13.0 || ^24.3.0 || >= 25.0.0}
 
   '@react-native/js-polyfills@0.74.87':
     resolution: {integrity: sha512-M5Evdn76CuVEF0GsaXiGi95CBZ4IWubHqwXxV9vG9CC9kq0PSkoM2Pn7Lx7dgyp4vT7ccJ8a3IwHbe+5KJRnpw==}
@@ -6535,8 +6531,6 @@ snapshots:
       - utf-8-validate
 
   '@react-native/gradle-plugin@0.74.87': {}
-
-  '@react-native/gradle-plugin@0.85.3': {}
 
   '@react-native/js-polyfills@0.74.87': {}
 
