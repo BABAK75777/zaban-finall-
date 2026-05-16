@@ -4,13 +4,7 @@
     "slug": "zaban-tts",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./apps/mobile/assets/adaptive-icon.png",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./apps/mobile/assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
@@ -20,10 +14,6 @@
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./apps/mobile/assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
       "package": "com.zaban.tts",
       "permissions": [
         "android.permission.INTERNET",
@@ -31,9 +21,6 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
-    },
-    "web": {
-      "favicon": "./apps/mobile/assets/adaptive-icon.png"
     },
     "plugins": [
       [
