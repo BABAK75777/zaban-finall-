@@ -191,7 +191,7 @@ app.use('/auth', authRoutes);
 
 // API Key authentication middleware (protects all routes except allowlisted public endpoints)
 // Mounted after public routes (/, /health, /auth) but before protected routes
-app.use(requireApiKey);
+//app.use(requireApiKey);
 
 // Usage/dashboard routes (auth required)
 app.use('/usage', usageRoutes);
