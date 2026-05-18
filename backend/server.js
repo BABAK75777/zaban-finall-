@@ -1028,9 +1028,11 @@ function generateSilentWav() {
 
 // TTS endpoint with comprehensive error handling and validation
 app.post('/tts', async (req, res) => {
+  console.log("[TTS:AUTH-BYPASS-CHECK] /tts route reached - build b26d8e3");
+
   // Log fallback env at handler start
   console.log("[TTS] fallback env =", process.env.TTS_DEV_FALLBACK_SILENT_WAV);
-  
+
   // Phase 1: Proof that request reaches backend
   if (process.env.NODE_ENV !== 'production') {
     console.log('[TTS] hit');
