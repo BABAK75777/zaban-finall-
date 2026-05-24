@@ -19,7 +19,8 @@ import { query } from './db/index.js';
 import authRoutes from './routes/auth.js';
 import usageRoutes from './routes/usage.js';
 import { getCacheFilePath, cacheExists, readCache, writeCache, getMimeType } from './utils/cache.js';
-import { getOpenAIApiKey, isOpenAIApiKeyConfigured } from './utils/env.js';
+import { getOpenAIApiKey, isOpenAIApiKeyConfigured, isOpenRouterConfigured } from './utils/env.js';
+import { openRouterChatCompletion, OpenRouterError } from './utils/openrouter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1781,6 +1782,128 @@ app.post('/ocr', async (req, res) => {
       error: 'OCR_FAILED',
       debugId: requestId,
       details: `OCR processing failed: ${errorMessage}. Check server logs for full details.`
+    });
+  }
+});
+
+// ============================================================================
+// AI PRACTICE TEXT GENERATION
+// ============================================================================
+
+/**
+ * POST /ai/generate - Generate English practice reading text via OpenRouter chat
+ */
+app.post('/ai/generate', async (req, res) => {
+  const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  const startTime = Date.now();
+
+  console.log(`[AI:${requestId}] Generate request received`);
+
+  try {
+    if (!isOpenRouterConfigured()) {
+      return res.status(500).json({
+        ok: false,
+        error: 'API_KEY_MISSING',
+        debugId: requestId,
+        details: 'OPENROUTER_API_KEY not configured.',
+      });
+    }
+
+    const { prompt, difficulty, tone, textLength, voiceType } = req.body ?? {};
+
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+      return res.status(400).json({
+        ok: false,
+        error: 'INVALID_INPUT',
+        debugId: requestId,
+        details: 'prompt is required and must be a non-empty string',
+      });
+    }
+
+    const clamp01 = (value, fallback = 0.5) => {
+      if (typeof value !== 'number' || Number.isNaN(value)) return fallback;
+      return Math.max(0, Math.min(1, value));
+    };
+
+    const d = clamp01(difficulty);
+    const t = clamp01(tone);
+    const len = clamp01(textLength, 0.35);
+    const voice = voiceType === 'male' ? 'male' : 'female';
+    const sentenceTarget = Math.max(3, Math.min(35, Math.round(7 + len * 28)));
+
+    const difficultyLabel =
+      d <= 0.25 ? 'beginner (A1-A2)' : d <= 0.5 ? 'lower-intermediate (B1)' : d <= 0.75 ? 'upper-intermediate (B2)' : 'advanced (C1)';
+    const toneLabel =
+      t <= 0.25 ? 'formal academic' : t <= 0.5 ? 'neutral educational' : t <= 0.75 ? 'conversational' : 'casual street English';
+    const trimmedPrompt = prompt.trim().slice(0, 2000);
+
+    const generatedText = await openRouterChatCompletion({
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You write English practice reading passages for language learners. Return only the practice text. Use clear sentences suitable for read-aloud practice. No titles, no bullet lists, no commentary.',
+        },
+        {
+          role: 'user',
+          content: `Topic/request: ${trimmedPrompt}
+Difficulty: ${difficultyLabel}
+Tone/style: ${toneLabel}
+Target voice context: ${voice}
+Length: about ${sentenceTarget} sentences.
+
+Write natural connected prose split into normal sentences.`,
+        },
+      ],
+      max_tokens: 4096,
+    });
+
+    const text = typeof generatedText === 'string' ? generatedText.trim() : '';
+    if (!text) {
+      return res.status(500).json({
+        ok: false,
+        error: 'EMPTY_RESPONSE',
+        debugId: requestId,
+        details: 'AI returned empty text.',
+      });
+    }
+
+    console.log(`[AI:${requestId}] Generated text`, {
+      textLength: text.length,
+      duration: `${Date.now() - startTime}ms`,
+    });
+
+    return res.status(200).json({ ok: true, text });
+  } catch (error) {
+    const errorMessage = error?.message || 'Unknown error';
+    console.error(`[AI:${requestId}] Error:`, {
+      message: errorMessage,
+      duration: `${Date.now() - startTime}ms`,
+    });
+
+    if (error instanceof OpenRouterError && error.status === 401) {
+      return res.status(500).json({
+        ok: false,
+        error: 'API_KEY_INVALID',
+        debugId: requestId,
+        details: 'OPENROUTER_API_KEY is invalid or expired',
+      });
+    }
+
+    if (error instanceof OpenRouterError && error.status === 429) {
+      return res.status(429).json({
+        ok: false,
+        error: 'RATE_LIMIT',
+        debugId: requestId,
+        details: 'OpenRouter rate limit exceeded. Please try again later.',
+      });
+    }
+
+    return res.status(500).json({
+      ok: false,
+      error: 'AI_GENERATE_FAILED',
+      debugId: requestId,
+      details: `AI generation failed: ${errorMessage}`,
     });
   }
 });
