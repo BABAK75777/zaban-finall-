@@ -20,7 +20,7 @@ import authRoutes from './routes/auth.js';
 import usageRoutes from './routes/usage.js';
 import { getCacheFilePath, cacheExists, readCache, writeCache, getMimeType } from './utils/cache.js';
 import { getOpenAIApiKey, isOpenAIApiKeyConfigured, isOpenRouterConfigured } from './utils/env.js';
-import { openRouterChatCompletion, OpenRouterError } from './utils/openrouter.js';
+import { openRouterChatCompletion, openRouterSpeech, OpenRouterError } from './utils/openrouter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -55,18 +55,16 @@ if (!fs.existsSync(CACHE_DIR)) {
   console.log(`[TTS:Cache] Created cache directory: ${CACHE_DIR}`);
 }
 
-// OpenAI API key validation at startup (using utility function)
-const OPENAI_API_KEY = getOpenAIApiKey();
-if (!OPENAI_API_KEY) {
-  console.error('[TTS] ERROR: OpenAI API key not found in environment variables');
-  console.error('[TTS] Set one of: OPENAI_API_KEY, OCR_OPENAI_API_KEY, or API_KEY');
-  console.error('[TTS] In backend/.env or backend/.env.local');
-  // Do not crash server - will return error on TTS/OCR requests
+// OpenRouter key validation at startup (used for TTS)
+if (!isOpenRouterConfigured()) {
+  console.error('[TTS] ERROR: OPENROUTER_API_KEY not found in environment variables');
+  console.error('[TTS] Set OPENROUTER_API_KEY in Cloud Run secrets or backend/.env');
 } else {
-  console.log('[TTS] OpenAI API key found (length:', OPENAI_API_KEY.length, ')');
+  console.log('[TTS] OpenRouter API key configured');
 }
 
-// Initialize OpenAI client (only if key is available)
+// Legacy OpenAI client — only used for OCR endpoint
+const OPENAI_API_KEY = getOpenAIApiKey();
 let openaiClient = null;
 if (OPENAI_API_KEY) {
   openaiClient = new OpenAI({ apiKey: OPENAI_API_KEY });
@@ -1283,89 +1281,62 @@ app.post('/tts', async (req, res) => {
       textPreview: trimmedText.substring(0, 50) + (trimmedText.length > 50 ? '...' : '')
     });
 
-    // 3️⃣ API KEY VALIDATION AT RUNTIME
-    if (!openaiClient) {
-      const errorMsg = 'OPENAI_API_KEY environment variable is not set or is empty';
+    // 3️⃣ PROVIDER VALIDATION AT RUNTIME
+    if (!isOpenRouterConfigured()) {
+      const errorMsg = 'OPENROUTER_API_KEY is not configured';
       console.error(`[TTS:${requestId}] ${errorMsg}`);
-      console.error(`[TTS:${requestId}] Check backend/.env or backend/.env.local for OPENAI_API_KEY`);
       const fallbackResponse = returnFallbackIfEnabled();
       if (fallbackResponse) return fallbackResponse;
       return res.status(500).json({
         ok: false,
         error: 'PROVIDER_ERROR',
         debugId: requestId,
-        details: 'API key not configured. Check server logs for details.'
+        details: 'TTS provider not configured. Check server logs for details.'
       });
     }
 
-    console.log(`[TTS:${requestId}] Using OpenAI TTS:`, {
-      model: 'gpt-4o-mini-tts',
+    console.log(`[TTS:${requestId}] Using OpenRouter TTS:`, {
       voice: 'alloy',
       format: 'wav',
       textLength: trimmedText.length
     });
 
-    // 4️⃣ OPENAI TTS API REQUEST
+    // 4️⃣ OPENROUTER TTS API REQUEST
     let audioBuffer = null;
     try {
-      if (!openaiClient) {
-        throw new Error('OpenAI client not initialized');
-      }
-
-      const response = await openaiClient.audio.speech.create({
-        model: 'gpt-4o-mini-tts',
+      const { buffer } = await openRouterSpeech({
+        text: trimmedText,
         voice: 'alloy',
-        input: trimmedText,
-        response_format: 'wav',
+        speed,
+        responseFormat: 'wav',
       });
 
-      // OpenAI returns audio as ArrayBuffer/ReadableStream
-      if (!response) {
-        throw new Error('OpenAI response is null or undefined');
-      }
+      audioBuffer = buffer;
 
-      const arrayBuffer = await response.arrayBuffer();
-      if (!arrayBuffer) {
-        throw new Error('OpenAI arrayBuffer is null or undefined');
-      }
-
-      audioBuffer = Buffer.from(arrayBuffer);
-      
-      // Validate audioBuffer
-      if (!Buffer.isBuffer(audioBuffer)) {
-        throw new Error(`audioBuffer is not a Buffer, got: ${typeof audioBuffer}`);
-      }
-
-      console.log(`[TTS:${requestId}] OpenAI TTS response:`, {
+      console.log(`[TTS:${requestId}] OpenRouter TTS response:`, {
         bufferLength: audioBuffer.length,
         isValid: audioBuffer.length > 0,
-        bufferType: Buffer.isBuffer(audioBuffer) ? 'Buffer' : typeof audioBuffer
       });
 
       if (audioBuffer.length === 0) {
-        console.error(`[TTS:${requestId}] Empty audio buffer from OpenAI`);
+        console.error(`[TTS:${requestId}] Empty audio buffer from OpenRouter`);
         const fallbackResponse = returnFallbackIfEnabled();
         if (fallbackResponse) return fallbackResponse;
         return res.status(500).json({
           ok: false,
           error: 'PROVIDER_ERROR',
           debugId: requestId,
-          details: 'OpenAI TTS returned empty audio. Check server logs for details.'
+          details: 'OpenRouter TTS returned empty audio.'
         });
       }
-    } catch (openaiError) {
-      const errorStack = openaiError.stack || 'No stack trace';
-      const errorMessage = openaiError.message || 'Unknown error';
-      console.error(`[TTS:${requestId}] OpenAI TTS API error:`, {
+    } catch (ttsError) {
+      const errorMessage = ttsError.message || 'Unknown error';
+      console.error(`[TTS:${requestId}] OpenRouter TTS error:`, {
         message: errorMessage,
-        name: openaiError.name || 'Error',
-        stack: errorStack,
-        status: openaiError.status,
-        code: openaiError.code,
-        fullError: openaiError
+        name: ttsError.name || 'Error',
+        status: ttsError.status,
       });
       
-      // PHASE 2: Dev fallback to silent WAV if enabled
       if (process.env.TTS_DEV_FALLBACK_SILENT_WAV === "true") {
         console.log("[TTS] Using silent wav fallback");
         const buf = generateSilentWav();
@@ -1380,7 +1351,7 @@ app.post('/tts', async (req, res) => {
         ok: false,
         error: 'PROVIDER_ERROR',
         debugId: requestId,
-        details: `OpenAI TTS error: ${errorMessage}`
+        details: `TTS error: ${errorMessage}`
       });
     }
 
@@ -1398,7 +1369,7 @@ app.post('/tts', async (req, res) => {
         ok: false,
         error: 'TTS_FAILED',
         debugId: requestId,
-        details: 'Audio buffer is invalid after OpenAI call. Check server logs for details.'
+        details: 'Audio buffer is invalid after TTS call. Check server logs for details.'
       });
     }
 
@@ -1410,7 +1381,7 @@ app.post('/tts', async (req, res) => {
         ok: false,
         error: 'TTS_FAILED',
         debugId: requestId,
-        details: 'Audio buffer is empty after OpenAI call. Check server logs for details.'
+        details: 'Audio buffer is empty after TTS call. Check server logs for details.'
       });
     }
 
@@ -1455,13 +1426,12 @@ app.post('/tts', async (req, res) => {
     const durationMsEstimate = Math.round(minutes * 60 * 1000);
 
     // 9️⃣ SAVE TO CACHE AND SEND SUCCESS RESPONSE
-    // OpenAI always returns WAV format
-    const openaiFormat = 'wav';
-    const cacheExtension = openaiFormat;
+    const ttsFormat = 'wav';
+    const cacheExtension = ttsFormat;
     
     // Save to user-specific cache if authenticated
     if (req.user) {
-      writeCache(req.user.id, cacheHash, openaiFormat, normalizedBuffer);
+      writeCache(req.user.id, cacheHash, ttsFormat, normalizedBuffer);
       
       // Save chunk to database
       try {
@@ -1478,7 +1448,7 @@ app.post('/tts', async (req, res) => {
               `INSERT INTO tts_chunks (user_id, session_id, chunk_hash, format, bytes, cache_hit, gemini_latency_ms)
                VALUES ($1, $2, $3, $4, $5, false, $6)
                ON CONFLICT DO NOTHING`,
-              [req.user.id, sessionId, cacheHash, openaiFormat, normalizedBuffer.length, Date.now() - startTime]
+              [req.user.id, sessionId, cacheHash, ttsFormat, normalizedBuffer.length, Date.now() - startTime]
             );
           }
         }
@@ -1513,7 +1483,7 @@ app.post('/tts', async (req, res) => {
       textLength: trimmedText.length,
       audioSize: normalizedBuffer.length,
       hash: cacheHash,
-      format: openaiFormat,
+      format: ttsFormat,
       voiceId,
       preset,
       speed,
