@@ -44,16 +44,16 @@ jobs:
       - name: Build Docker image
         working-directory: ./backend
         run: |
-          docker build -t europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/${{ env.SERVICE_NAME }}:${{ steps.commit.outputs.sha }} .
+          docker build -t "europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/${{ env.SERVICE_NAME }}:${{ steps.commit.outputs.sha }}" .
 
       - name: Push Docker image to Artifact Registry
         run: |
-          docker push europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/${{ env.SERVICE_NAME }}:${{ steps.commit.outputs.sha }}
+          docker push "europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/${{ env.SERVICE_NAME }}:${{ steps.commit.outputs.sha }}"
 
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/${{ env.SERVICE_NAME }}:${{ steps.commit.outputs.sha }} \
+            --image "europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/${{ env.SERVICE_NAME }}:${{ steps.commit.outputs.sha }}" \
             --region ${{ env.REGION }} \
             --platform managed \
             --service-account ${{ env.SERVICE_ACCOUNT }} \
