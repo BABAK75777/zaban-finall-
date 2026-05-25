@@ -58,7 +58,7 @@ jobs:
             --platform managed \
             --service-account "${{ env.SERVICE_ACCOUNT }}" \
             --allow-unauthenticated \
-            --update-secrets="JWT_SECRET=JWT_SECRET:latest,API_KEY=API_KEY:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest" \
+            --update-secrets="JWT_SECRET=JWT_SECRET:latest,API_KEY=API_KEY:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest" \
             --set-env-vars="OPENROUTER_BASE_URL=https://openrouter.ai/api/v1" \
             --quiet
 
