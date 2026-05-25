@@ -1297,7 +1297,7 @@ app.post('/tts', async (req, res) => {
 
     console.log(`[TTS:${requestId}] Using OpenRouter TTS:`, {
       voice: 'alloy',
-      format: 'wav',
+      format: 'mp3',
       textLength: trimmedText.length
     });
 
@@ -1308,7 +1308,7 @@ app.post('/tts', async (req, res) => {
         text: trimmedText,
         voice: 'alloy',
         speed,
-        responseFormat: 'wav',
+        responseFormat: 'mp3',
       });
 
       audioBuffer = buffer;
@@ -1426,7 +1426,7 @@ app.post('/tts', async (req, res) => {
     const durationMsEstimate = Math.round(minutes * 60 * 1000);
 
     // 9️⃣ SAVE TO CACHE AND SEND SUCCESS RESPONSE
-    const ttsFormat = 'wav';
+    const ttsFormat = 'mp3';
     const cacheExtension = ttsFormat;
     
     // Save to user-specific cache if authenticated
@@ -1524,9 +1524,9 @@ app.post('/tts', async (req, res) => {
     const response = res.status(200).json({
       ok: true,
       audioBase64: audioBase64,
-      mimeType: 'audio/wav'
+      mimeType: 'audio/mpeg'
     });
-    console.log("[TTS] /tts returning JSON, base64_len=", audioBase64?.length, "mime=", 'audio/wav');
+    console.log("[TTS] /tts returning JSON, base64_len=", audioBase64?.length, "mime=", 'audio/mpeg');
     return response;
 
   } catch (error) {
