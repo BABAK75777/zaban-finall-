@@ -56,7 +56,7 @@ jobs:
             --image "europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/${{ env.SERVICE_NAME }}:${{ steps.commit.outputs.sha }}" \
             --region ${{ env.REGION }} \
             --platform managed \
-            --service-account ${{ env.SERVICE_ACCOUNT }} \
+            --service-account "${{ env.SERVICE_ACCOUNT }}" \
             --allow-unauthenticated \
             --update-secrets="JWT_SECRET=JWT_SECRET:latest,API_KEY=API_KEY:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest" \
             --set-env-vars="OPENROUTER_BASE_URL=https://openrouter.ai/api/v1" \
