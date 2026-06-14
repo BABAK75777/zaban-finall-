@@ -119,12 +119,13 @@ export function SettingSlider({
         onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: (evt) => {
           beginDrag();
+          const pageX = evt.nativeEvent.pageX;
           syncTrackMetrics(() => {
-            updateFromPageX(evt.nativeEvent.pageX, true);
+            updateFromPageX(pageX, true);
           });
         },
-        onPanResponderMove: (evt) => {
-          updateFromPageX(evt.nativeEvent.pageX, true);
+        onPanResponderMove: (_evt, gestureState) => {
+          updateFromPageX(gestureState.moveX, true);
         },
         onPanResponderRelease: endDrag,
         onPanResponderTerminate: endDrag,
