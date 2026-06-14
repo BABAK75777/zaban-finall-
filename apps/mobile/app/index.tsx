@@ -1463,6 +1463,40 @@ export default function ReadingScreen() {
                   </View>
 
                   <Text style={[styles.settingsSectionLabel, { color: colors.textDim }]}>
+                    Voice type
+                  </Text>
+                  <View style={styles.voiceTypeRow}>
+                    {(['female', 'male'] as const).map((voice) => {
+                      const selected = ttsVoiceType === voice;
+                      return (
+                        <Pressable
+                          key={voice}
+                          style={[
+                            styles.voiceTypeBtn,
+                            {
+                              borderColor: selected ? colors.accent : colors.border,
+                              backgroundColor: selected ? colors.accent : 'transparent',
+                            },
+                          ]}
+                          onPress={() => {
+                            setTtsVoiceType(voice);
+                            ttsVoiceTypeRef.current = voice;
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.voiceTypeBtnText,
+                              { color: selected ? '#FFFFFF' : colors.text },
+                            ]}
+                          >
+                            {voice === 'male' ? 'Male' : 'Female'}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <Text style={[styles.settingsSectionLabel, { color: colors.textDim }]}>
                     AI SPEED: {aiSpeed.toFixed(1)}x
                   </Text>
                   <SettingSlider
@@ -1477,40 +1511,6 @@ export default function ReadingScreen() {
                     border={colors.border}
                     track={colors.accentSoft}
                   />
-
-                  <Text style={[styles.settingsSectionLabel, { color: colors.textDim }]}>
-                    Voice type
-                  </Text>
-                  <View style={styles.readUnitRow}>
-                    {(['female', 'male'] as const).map((voice) => {
-                      const selected = ttsVoiceType === voice;
-                      return (
-                        <Pressable
-                          key={voice}
-                          style={[
-                            styles.readUnitBtn,
-                            {
-                              borderColor: selected ? colors.accent : colors.border,
-                              backgroundColor: selected ? colors.accent : 'transparent',
-                            },
-                          ]}
-                          onPress={() => {
-                            setTtsVoiceType(voice);
-                            ttsVoiceTypeRef.current = voice;
-                          }}
-                        >
-                          <Text
-                            style={[
-                              styles.readUnitBtnText,
-                              { color: selected ? '#FFFFFF' : colors.text },
-                            ]}
-                          >
-                            {voice === 'male' ? 'Male' : 'Female'}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
 
                   <View style={styles.textSizeHeader}>
                     <Text style={[styles.settingsSectionLabel, { color: colors.textDim, marginBottom: 0 }]}>
@@ -1527,6 +1527,8 @@ export default function ReadingScreen() {
                     max={48}
                     step={2}
                     onChange={setTextSize}
+                    onDragStart={handleSliderDragStart}
+                    onDragEnd={handleSliderDragEnd}
                     accent={colors.accent}
                     border={colors.border}
                     track={colors.accentSoft}
@@ -1723,6 +1725,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     lineHeight: 13,
+  },
+  voiceTypeRow: {
+    flexDirection: 'row',
+    alignSelf: 'center',
+    width: '52%',
+    maxWidth: 176,
+    gap: 6,
+    marginBottom: 10,
+  },
+  voiceTypeBtn: {
+    flex: 1,
+    minHeight: 28,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceTypeBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   textSizeHeader: {
     flexDirection: 'row',

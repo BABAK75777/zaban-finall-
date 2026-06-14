@@ -26,6 +26,8 @@ export interface SettingSliderProps {
   accent: string;
   border: string;
   track: string;
+  /** Tighter vertical spacing for stacked slider rows (e.g. AI modal). */
+  compact?: boolean;
 }
 
 export function SettingSlider({
@@ -39,10 +41,13 @@ export function SettingSlider({
   accent,
   border,
   track,
+  compact = false,
 }: SettingSliderProps) {
   const [trackWidth, setTrackWidth] = useState(0);
   const [dragValue, setDragValue] = useState<number | null>(null);
+  const hitAreaRef = useRef<View>(null);
   const trackWidthRef = useRef(0);
+  const trackOriginXRef = useRef(0);
   const lastEmittedRef = useRef(value);
   const onChangeRef = useRef(onChange);
   const onDragStartRef = useRef(onDragStart);
@@ -60,12 +65,22 @@ export function SettingSlider({
   const thumbTravel = Math.max(0, trackWidth - THUMB_SIZE);
   const thumbLeft = thumbTravel * ratio;
 
-  const valueFromX = useCallback(
-    (x: number): number | null => {
+  const syncTrackMetrics = useCallback((callback?: () => void) => {
+    hitAreaRef.current?.measureInWindow((x, _y, width) => {
+      trackOriginXRef.current = x;
+      trackWidthRef.current = width;
+      setTrackWidth(width);
+      callback?.();
+    });
+  }, []);
+
+  const valueFromPageX = useCallback(
+    (pageX: number): number | null => {
       const width = trackWidthRef.current;
       if (width <= THUMB_SIZE) return null;
+      const localX = pageX - trackOriginXRef.current;
       const usable = width - THUMB_SIZE;
-      const t = clamp((x - THUMB_SIZE / 2) / usable, 0, 1);
+      const t = clamp((localX - THUMB_SIZE / 2) / usable, 0, 1);
       return snapToStep(min + t * (max - min), min, max, step);
     },
     [min, max, step]
@@ -79,13 +94,13 @@ export function SettingSlider({
     }
   }, []);
 
-  const updateFromX = useCallback(
-    (x: number, live: boolean) => {
-      const next = valueFromX(x);
+  const updateFromPageX = useCallback(
+    (pageX: number, live: boolean) => {
+      const next = valueFromPageX(pageX);
       if (next == null) return;
       emitValue(next, live);
     },
-    [valueFromX, emitValue]
+    [valueFromPageX, emitValue]
   );
 
   const beginDrag = useCallback(() => {
@@ -104,20 +119,22 @@ export function SettingSlider({
         onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: (evt) => {
           beginDrag();
-          updateFromX(evt.nativeEvent.locationX, true);
+          syncTrackMetrics(() => {
+            updateFromPageX(evt.nativeEvent.pageX, true);
+          });
         },
         onPanResponderMove: (evt) => {
-          updateFromX(evt.nativeEvent.locationX, true);
+          updateFromPageX(evt.nativeEvent.pageX, true);
         },
         onPanResponderRelease: endDrag,
         onPanResponderTerminate: endDrag,
       }),
-    [updateFromX, beginDrag, endDrag]
+    [updateFromPageX, beginDrag, endDrag, syncTrackMetrics]
   );
 
   return (
     <View
-      style={styles.wrap}
+      style={[styles.wrap, compact && styles.wrapCompact]}
       accessibilityRole="adjustable"
       accessibilityValue={{
         min,
@@ -126,11 +143,10 @@ export function SettingSlider({
       }}
     >
       <View
+        ref={hitAreaRef}
         style={styles.hitArea}
-        onLayout={(e) => {
-          const w = e.nativeEvent.layout.width;
-          trackWidthRef.current = w;
-          setTrackWidth(w);
+        onLayout={() => {
+          syncTrackMetrics();
         }}
         {...panResponder.panHandlers}
       >
@@ -163,6 +179,9 @@ export function SettingSlider({
 const styles = StyleSheet.create({
   wrap: {
     marginBottom: 16,
+  },
+  wrapCompact: {
+    marginBottom: 0,
   },
   hitArea: {
     height: HIT_HEIGHT,

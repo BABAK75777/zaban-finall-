@@ -106,13 +106,15 @@ interface SliderRowProps {
   value: number;
   onChange: (v: number) => void;
   theme: ThemePalette;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
 }
 
-function SliderRow({ title, leftLabel, rightLabel, value, onChange, theme }: SliderRowProps) {
+function SliderRow({ title, leftLabel, rightLabel, value, onChange, theme, onDragStart, onDragEnd }: SliderRowProps) {
   const colors = theme;
   return (
-    <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: colors.textDim }]}>{title}</Text>
+    <View style={styles.sliderSection}>
+      <Text style={[styles.sliderSectionTitle, { color: colors.textDim }]}>{title}</Text>
       <View style={styles.sliderLabels}>
         <Text style={[styles.sliderEndpoint, { color: colors.textMuted }]}>{leftLabel}</Text>
         <Text style={[styles.sliderEndpoint, { color: colors.textMuted }]}>{rightLabel}</Text>
@@ -123,15 +125,18 @@ function SliderRow({ title, leftLabel, rightLabel, value, onChange, theme }: Sli
         max={1}
         step={0.05}
         onChange={onChange}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
         accent={colors.accent}
         border={colors.border}
         track={colors.accentSoft}
+        compact
       />
     </View>
   );
 }
 
-const KEYBOARD_SCROLL_BUFFER = 120;
+const KEYBOARD_FOOTER_HEIGHT = 52;
 
 export function AiPromptModal({
   visible,
@@ -147,10 +152,20 @@ export function AiPromptModal({
   const [settings, setSettings] = useState<AiPromptSettings>(defaultSettings);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [generating, setGenerating] = useState(false);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
 
   const colors = theme;
   const isDark = themeId === 'dark';
   const keyboardAppearance = themeId === 'light' || themeId === 'cream' ? 'light' : 'dark';
+  const keyboardOpen = keyboardHeight > 0;
+
+  const handleSliderDragStart = useCallback(() => {
+    setScrollEnabled(false);
+  }, []);
+
+  const handleSliderDragEnd = useCallback(() => {
+    setScrollEnabled(true);
+  }, []);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -173,12 +188,14 @@ export function AiPromptModal({
     if (!visible) {
       setKeyboardHeight(0);
       setGenerating(false);
+      setScrollEnabled(true);
       generateInFlightRef.current = false;
     }
   }, [visible]);
 
-  const scrollBottomPadding =
-    insets.bottom + space.xxl + (keyboardHeight > 0 ? keyboardHeight + KEYBOARD_SCROLL_BUFFER : 0);
+  const scrollBottomPadding = keyboardOpen
+    ? KEYBOARD_FOOTER_HEIGHT + space.sm
+    : insets.bottom + space.xxl;
 
   const focusPromptInput = useCallback(() => {
     const delay = Platform.OS === 'android' ? 160 : 60;
@@ -244,6 +261,36 @@ export function AiPromptModal({
     onClose();
   }, [onClose]);
 
+  const generateButton = (
+    <Pressable
+      onPress={() => void handleGenerate()}
+      disabled={generating}
+      style={({ pressed }) => [
+        styles.generateBtn,
+        keyboardOpen && styles.generateBtnKeyboard,
+        {
+          backgroundColor: colors.accent,
+          borderColor: colors.accentGlow,
+          shadowColor: colors.accent,
+          opacity: generating ? 0.72 : 1,
+        },
+        pressed && !generating && { opacity: 0.92, transform: [{ scale: 0.99 }] },
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel="Generate"
+      accessibilityState={{ disabled: generating, busy: generating }}
+    >
+      {generating ? (
+        <View style={styles.generateLoadingRow}>
+          <ActivityIndicator color="#FFFFFF" size="small" />
+          <Text style={styles.generateLabel}>Generating…</Text>
+        </View>
+      ) : (
+        <Text style={styles.generateLabel}>Generate</Text>
+      )}
+    </Pressable>
+  );
+
   const handleCloseRef = useRef(handleClose);
   handleCloseRef.current = handleClose;
 
@@ -274,7 +321,7 @@ export function AiPromptModal({
         >
           <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
             <KeyboardAvoidingView
-              style={styles.flex}
+              style={[styles.flex, styles.flexRelative]}
               behavior={Platform.OS === 'ios' ? 'padding' : undefined}
               keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
             >
@@ -309,6 +356,7 @@ export function AiPromptModal({
                   { paddingBottom: scrollBottomPadding },
                 ]}
                 showsVerticalScrollIndicator={false}
+                scrollEnabled={scrollEnabled}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 nestedScrollEnabled
@@ -319,6 +367,8 @@ export function AiPromptModal({
                   rightLabel="Advanced"
                   value={settings.difficulty}
                   onChange={(difficulty) => patch({ difficulty })}
+                  onDragStart={handleSliderDragStart}
+                  onDragEnd={handleSliderDragEnd}
                   theme={theme}
                 />
 
@@ -328,6 +378,8 @@ export function AiPromptModal({
                   rightLabel="Street"
                   value={settings.tone}
                   onChange={(tone) => patch({ tone })}
+                  onDragStart={handleSliderDragStart}
+                  onDragEnd={handleSliderDragEnd}
                   theme={theme}
                 />
 
@@ -337,6 +389,8 @@ export function AiPromptModal({
                   rightLabel="Long"
                   value={settings.textLength}
                   onChange={(textLength) => patch({ textLength })}
+                  onDragStart={handleSliderDragStart}
+                  onDragEnd={handleSliderDragEnd}
                   theme={theme}
                 />
 
@@ -391,33 +445,23 @@ export function AiPromptModal({
                   />
                 </View>
 
-                <Pressable
-                  onPress={() => void handleGenerate()}
-                  disabled={generating}
-                  style={({ pressed }) => [
-                    styles.generateBtn,
-                    {
-                      backgroundColor: colors.accent,
-                      borderColor: colors.accentGlow,
-                      shadowColor: colors.accent,
-                      opacity: generating ? 0.72 : 1,
-                    },
-                    pressed && !generating && { opacity: 0.92, transform: [{ scale: 0.99 }] },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Generate"
-                  accessibilityState={{ disabled: generating, busy: generating }}
-                >
-                  {generating ? (
-                    <View style={styles.generateLoadingRow}>
-                      <ActivityIndicator color="#FFFFFF" size="small" />
-                      <Text style={styles.generateLabel}>Generating…</Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.generateLabel}>Generate</Text>
-                  )}
-                </Pressable>
+                {!keyboardOpen ? generateButton : null}
               </ScrollView>
+
+              {keyboardOpen ? (
+                <View
+                  style={[
+                    styles.keyboardFooter,
+                    {
+                      bottom: Platform.OS === 'android' ? keyboardHeight : 0,
+                      backgroundColor: colors.bg,
+                      borderTopColor: colors.border,
+                    },
+                  ]}
+                >
+                  {generateButton}
+                </View>
+              ) : null}
             </KeyboardAvoidingView>
           </SafeAreaView>
         </Pressable>
@@ -448,6 +492,9 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
     paddingHorizontal: space.lg,
+  },
+  flexRelative: {
+    position: 'relative',
   },
   glowOrb: {
     position: 'absolute',
@@ -506,8 +553,22 @@ const styles = StyleSheet.create({
   },
   scroll: { flex: 1 },
   scrollContent: {
-    paddingBottom: space.xxl,
-    gap: space.sm,
+    paddingBottom: space.md,
+    gap: space.xs,
+  },
+  sliderSection: {
+    marginBottom: space.sm,
+    width: '100%',
+  },
+  sliderSectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    alignSelf: 'center',
+    width: '100%',
+    marginBottom: space.xs,
   },
   section: {
     marginBottom: space.sm,
@@ -532,7 +593,7 @@ const styles = StyleSheet.create({
     padding: space.md,
     minHeight: 148,
     maxHeight: 220,
-    marginBottom: space.sm,
+    marginBottom: space.xs,
   },
   promptInput: {
     fontSize: 16,
@@ -604,6 +665,18 @@ const styles = StyleSheet.create({
       },
       android: { elevation: 4 },
     }),
+  },
+  generateBtnKeyboard: {
+    marginTop: 0,
+  },
+  keyboardFooter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    paddingHorizontal: space.lg,
+    paddingTop: space.sm,
+    paddingBottom: space.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   generateLoadingRow: {
     flexDirection: 'row',
