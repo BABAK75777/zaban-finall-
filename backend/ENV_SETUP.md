@@ -1,103 +1,44 @@
-# Environment Variables Setup
+# Backend Environment Setup
 
-## Quick Start
+## OpenRouter (required — single AI provider)
 
-1. **Create `.env` file in `backend/` directory:**
-   ```bash
-   cd backend
-   touch .env
-   ```
+All AI traffic (TTS, chat/OCR) goes through OpenRouter only. No direct OpenAI or Google API keys.
 
-2. **Add your OpenAI API key:**
-   ```env
-   OPENAI_API_KEY=sk-your-openai-api-key-here
-   ```
-
-3. **Restart the server:**
-   ```bash
-   npm run dev
-   ```
-
-## Available Environment Variables
-
-### OpenAI API Configuration
-
-**Primary (recommended):**
-```env
-OPENAI_API_KEY=sk-your-openai-api-key-here
-```
-
-**OCR-specific (optional, overrides OPENAI_API_KEY for OCR):**
-```env
-OCR_OPENAI_API_KEY=sk-your-ocr-api-key-here
-```
-
-**Legacy fallback (for backward compatibility):**
-```env
-API_KEY=sk-your-api-key-here
-```
-
-**Priority order:**
-1. `OPENAI_API_KEY` (checked first)
-2. `OCR_OPENAI_API_KEY` (checked second)
-3. `API_KEY` (checked third)
-
-### Server Configuration
-
-```env
-PORT=3001
-NODE_ENV=development
-```
-
-### Authentication
-
-```env
-# Options: 'guest' (no auth) or 'jwt' (requires database)
-AUTH_MODE=guest
-```
-
-### Database (required if AUTH_MODE=jwt)
-
-```env
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=your_db_user
-DB_PASSWORD=your_db_password
-DB_NAME=zaban_db
-```
-
-### CORS (production)
-
-```env
-CORS_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
-```
-
-## Verification
-
-After setting up `.env`, verify it's loaded:
+1. **Create `.env` in `backend/`:**
 
 ```bash
-# Check health endpoint
-curl http://localhost:3001/health
-
-# Expected response:
-# {
-#   "ok": true,
-#   "ocr": {
-#     "enabled": true,
-#     "keyConfigured": true
-#   }
-# }
+OPENROUTER_API_KEY=sk-or-v1-your-key-here
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 ```
 
-If `keyConfigured: false`, check:
-- `.env` file exists in `backend/` directory
-- `OPENAI_API_KEY` is set correctly
-- Server was restarted after creating `.env`
+Optional:
 
-## Security Notes
+```bash
+OPENROUTER_TTS_MODEL=x-ai/grok-voice-tts-1.0
+OPENROUTER_CHAT_MODEL=openai/gpt-4o-mini
+OPENROUTER_HTTP_REFERER=https://your-app.example
+OPENROUTER_APP_NAME=Zaban TTS
+TTS_DEV_FALLBACK_SILENT_WAV=true   # local dev only — silent audio when key missing
+```
 
-- ⚠️ **Never commit `.env` file to git**
-- ✅ `.env` is already in `.gitignore`
-- ✅ Use `.env.local` for local overrides (also ignored by git)
+2. **Restart the server** after changing `.env`.
 
+### Cloud Run (production)
+
+```bash
+gcloud secrets create OPENROUTER_API_KEY --replication-policy=automatic
+printf '%s' 'sk-or-v1-YOUR-KEY' | gcloud secrets versions add OPENROUTER_API_KEY --data-file=-
+
+gcloud run services update zaban-api --region europe-west1 \
+  --update-secrets=OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest \
+  --set-env-vars=OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+```
+
+`API_KEY` is only for `x-api-key` client authentication — not for OpenRouter.
+
+### App auth (production)
+
+```bash
+API_KEY=your-app-api-key
+JWT_SECRET=your-jwt-secret
+```

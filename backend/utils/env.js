@@ -49,7 +49,7 @@ export function isOpenAIApiKeyConfigured() {
  * @returns {string}
  */
 export function getOpenRouterTtsModel() {
-  return process.env.OPENROUTER_TTS_MODEL || 'openai/gpt-4o-mini-tts-2025-12-15';
+  return process.env.OPENROUTER_TTS_MODEL || 'x-ai/grok-voice-tts-1.0';
 }
 
 /**

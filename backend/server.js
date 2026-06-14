@@ -1127,7 +1127,8 @@ app.post('/tts', async (req, res) => {
       path: pathParam, 
       hash: hashParam, 
       speed = 1.0,
-      sampleRate = 24000
+      sampleRate = 24000,
+      voice: voiceParam,
     } = req.body;
     
     // Phase 6: Fixed values for removed options
@@ -1135,9 +1136,22 @@ app.post('/tts', async (req, res) => {
     const preset = 'default';
     const pitch = 0.0;
     const format = 'mp3';
+
+    const normalizeTtsVoice = (raw) => {
+      if (typeof raw !== 'string') return 'female';
+      const v = raw.trim().toLowerCase();
+      if (v === 'male' || v === 'onyx' || v === 'echo' || v === 'fable' || v === 'ash') {
+        return 'male';
+      }
+      if (v === 'female' || v === 'nova' || v === 'shimmer' || v === 'coral' || v === 'sage') {
+        return 'female';
+      }
+      return v;
+    };
+    const ttsVoice = normalizeTtsVoice(voiceParam);
     
     // Validate and reject unknown keys (strict mode for new API) - only if hash provided
-    const allowedKeys = ['text', 'path', 'hash', 'speed', 'sampleRate'];
+    const allowedKeys = ['text', 'path', 'hash', 'speed', 'sampleRate', 'voice'];
     const unknownKeys = Object.keys(req.body).filter(key => !allowedKeys.includes(key));
     if (unknownKeys.length > 0 && hashParam) {
       // Only enforce strict mode when hash is provided (new API usage)
@@ -1296,7 +1310,7 @@ app.post('/tts', async (req, res) => {
     }
 
     console.log(`[TTS:${requestId}] Using OpenRouter TTS:`, {
-      voice: 'alloy',
+      voice: ttsVoice,
       format: 'mp3',
       textLength: trimmedText.length
     });
@@ -1306,7 +1320,7 @@ app.post('/tts', async (req, res) => {
     try {
       const { buffer } = await openRouterSpeech({
         text: trimmedText,
-        voice: 'alloy',
+        voice: ttsVoice,
         speed,
         responseFormat: 'mp3',
       });
@@ -1798,7 +1812,8 @@ app.post('/ai/generate', async (req, res) => {
     const d = clamp01(difficulty);
     const t = clamp01(tone);
     const len = clamp01(textLength, 0.35);
-    const voice = voiceType === 'male' ? 'male' : 'female';
+    const voice =
+      voiceType === 'male' ? 'male' : voiceType === 'female' ? 'female' : 'female';
     const sentenceTarget = Math.max(3, Math.min(35, Math.round(7 + len * 28)));
 
     const difficultyLabel =

@@ -10,6 +10,14 @@ let sound: Audio.Sound | null = null;
 let currentRequestId: number = 0;
 let isPaused: boolean = false;
 let currentUri: string | null = null;
+const tempPlaybackUris = new Set<string>();
+const MAX_TEMP_FILES = 8;
+const MIN_PLAYBACK_RATE = 0.5;
+const MAX_PLAYBACK_RATE = 1.5;
+
+function clampPlaybackRate(rate: number): number {
+  return Math.max(MIN_PLAYBACK_RATE, Math.min(MAX_PLAYBACK_RATE, rate));
+}
 
 // Configure audio mode for background playback
 async function configureAudioMode() {
@@ -29,7 +37,14 @@ async function configureAudioMode() {
 // Initialize audio mode on first use
 let audioModeConfigured = false;
 
+export interface MobilePlayOptions {
+  /** Per-play rate override (e.g. shadow recording at 1.0). Does not change stored AI speed. */
+  playbackRate?: number;
+}
+
 export class MobileAudioPlayer implements AudioPlayer {
+  private playbackRate = 1.0;
+
   constructor() {
     if (!audioModeConfigured) {
       configureAudioMode();
@@ -37,7 +52,32 @@ export class MobileAudioPlayer implements AudioPlayer {
     }
   }
 
-  async play(audioData: Blob | Uint8Array | string, requestId: number): Promise<void> {
+  setPlaybackRate(rate: number): void {
+    const clamped = clampPlaybackRate(rate);
+    const prev = this.playbackRate;
+    this.playbackRate = clamped;
+    const playing = sound != null;
+    if (playing && sound != null && typeof sound.setRateAsync === 'function') {
+      void sound.setRateAsync(clamped, true).catch((err) => {
+        console.warn('[MobileAudioPlayer] setRateAsync failed:', err);
+      });
+    }
+    console.log(`[PlaybackRate] applied rate=${clamped}`);
+    // CHAT2/runtime validation grep (legacy format).
+    console.log(
+      `[MobileAudioPlayer] setPlaybackRate ${prev} → ${clamped}${playing ? ' (active)' : ''}`
+    );
+  }
+
+  getPlaybackRate(): number {
+    return this.playbackRate;
+  }
+
+  async play(
+    audioData: Blob | Uint8Array | string,
+    requestId: number,
+    options?: MobilePlayOptions
+  ): Promise<void> {
     // Check if this request is still current
     if (requestId !== currentRequestId) {
       return Promise.resolve();
@@ -55,15 +95,29 @@ export class MobileAudioPlayer implements AudioPlayer {
         } else {
           // Convert blob/uint8array to file
           const base64 = await this.toBase64(audioData);
-          const filename = `tts_${Date.now()}.mp3`;
+          const filename = `tts_${Date.now()}_${requestId}.mp3`;
           uri = `${FileSystem.documentDirectory}${filename}`;
-          
+
           await FileSystem.writeAsStringAsync(uri, base64, {
             encoding: FileSystem.EncodingType.Base64,
           });
+          tempPlaybackUris.add(uri);
+          while (tempPlaybackUris.size > MAX_TEMP_FILES) {
+            const oldest = tempPlaybackUris.values().next().value;
+            if (!oldest || oldest === uri) break;
+            tempPlaybackUris.delete(oldest);
+            await FileSystem.deleteAsync(oldest, { idempotent: true }).catch(() => {});
+          }
         }
 
         currentUri = uri;
+        console.log(
+          `[MobileAudioPlayer] play path=${uri} requestId=${requestId} tempFiles=${tempPlaybackUris.size}`
+        );
+
+        const playRate = clampPlaybackRate(
+          options?.playbackRate ?? this.playbackRate
+        );
 
         const { sound: newSound } = await Audio.Sound.createAsync(
           { uri },
@@ -71,7 +125,7 @@ export class MobileAudioPlayer implements AudioPlayer {
             shouldPlay: true,
             isLooping: false,
             volume: 1.0,
-            rate: 1.0, // Fixed playback rate
+            rate: playRate,
           },
           (status) => {
             if (!status.isLoaded) {
@@ -169,12 +223,11 @@ export class MobileAudioPlayer implements AudioPlayer {
       sound = null;
     }
     
-    if (currentUri && currentUri.startsWith(FileSystem.documentDirectory || '')) {
-      FileSystem.deleteAsync(currentUri, { idempotent: true }).catch(() => {
-        // Ignore errors
-      });
+    if (currentUri && tempPlaybackUris.has(currentUri)) {
+      tempPlaybackUris.delete(currentUri);
+      FileSystem.deleteAsync(currentUri, { idempotent: true }).catch(() => {});
     }
-    
+
     currentUri = null;
     isPaused = false;
   }
@@ -208,7 +261,16 @@ export class MobileAudioPlayer implements AudioPlayer {
 
   cancel(): void {
     currentRequestId += 1;
+    console.log(`[MobileAudioPlayer] cancel requestId=${currentRequestId}`);
     this.stop();
+  }
+
+  getActivePlaybackPath(): string | null {
+    return currentUri;
+  }
+
+  getTempFileCount(): number {
+    return tempPlaybackUris.size;
   }
 
   private cleanup(): void {

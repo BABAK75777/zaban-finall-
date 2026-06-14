@@ -64,59 +64,164 @@ async function openRouterFetch(path, init) {
   return response;
 }
 
+/** @typedef {{ model: string, responseFormat: 'mp3' | 'pcm', mimeType: string, sampleRate?: number }} TtsProfile */
+
+/** Models verified against OpenRouter speech API (2026-06). */
+const TTS_PROFILES = [
+  {
+    model: 'x-ai/grok-voice-tts-1.0',
+    responseFormat: 'mp3',
+    mimeType: 'audio/mpeg',
+  },
+  {
+    model: 'google/gemini-3.1-flash-tts-preview',
+    responseFormat: 'pcm',
+    mimeType: 'audio/wav',
+    sampleRate: 24000,
+  },
+];
+
+function isMaleVoiceToken(voice) {
+  const v = String(voice || '').trim().toLowerCase();
+  return (
+    v === 'male' ||
+    v === 'onyx' ||
+    v === 'echo' ||
+    v === 'fable' ||
+    v === 'ash' ||
+    v === 'rex' ||
+    v === 'leo'
+  );
+}
+
+/**
+ * Map app voice tokens to provider-specific voice ids.
+ * @param {string} model
+ * @param {string} voice
+ */
+function resolveVoiceForModel(model, voice) {
+  const male = isMaleVoiceToken(voice);
+
+  if (model.includes('grok-voice')) {
+    return male ? 'Rex' : 'Eve';
+  }
+
+  if (model.includes('gemini') && model.includes('tts')) {
+    return male ? 'Puck' : 'Kore';
+  }
+
+  if (model.includes('mai-voice')) {
+    return 'en-US-Harper:MAI-Voice-2';
+  }
+
+  return voice || 'default';
+}
+
+function pcm16ToWav(pcmBuffer, sampleRate = 24000, channels = 1) {
+  const dataSize = pcmBuffer.length;
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * channels * 2, 28);
+  header.writeUInt16LE(channels * 2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(dataSize, 40);
+  return Buffer.concat([header, pcmBuffer]);
+}
+
+function getTtsProfiles() {
+  const configured = getOpenRouterTtsModel();
+  const ordered = [...TTS_PROFILES];
+  const idx = ordered.findIndex((p) => p.model === configured);
+  if (idx > 0) {
+    const [preferred] = ordered.splice(idx, 1);
+    ordered.unshift(preferred);
+  }
+  return ordered;
+}
+
 /**
  * Text-to-speech via OpenRouter POST /audio/speech
  *
- * @param {{ text: string, voice?: string, speed?: number, responseFormat?: 'mp3' | 'wav' }} params
+ * @param {{ text: string, voice?: string, speed?: number, responseFormat?: 'mp3' | 'wav' | 'pcm' }} params
  * @returns {Promise<{ buffer: Buffer, mimeType: string, format: string }>}
  */
 export async function openRouterSpeech({
   text,
-  voice = 'alloy',
+  voice = 'female',
   speed = 1.0,
   responseFormat = 'mp3',
 }) {
-  const format = responseFormat === 'wav' ? 'wav' : 'mp3';
-  const mimeType = format === 'mp3' ? 'audio/mpeg' : 'audio/wav';
-  const model = getOpenRouterTtsModel();
+  const profiles = getTtsProfiles();
+  let lastError = null;
 
-  console.log('[OpenRouter] provider=openrouter TTS request:', {
-    model,
-    voice,
-    speed,
-    format,
-    textLength: text.length,
-  });
+  for (const profile of profiles) {
+    const providerVoice = resolveVoiceForModel(profile.model, voice);
+    const format = profile.responseFormat;
 
-  const body = {
-    model,
-    input: text,
-    voice,
-    response_format: format,
-    speed,
-  };
+    console.log('[OpenRouter] provider=openrouter TTS request:', {
+      model: profile.model,
+      voice: providerVoice,
+      speed,
+      format,
+      textLength: text.length,
+    });
 
-  // OpenRouter TTS (OpenAI-compatible path per product requirements)
-  const response = await openRouterFetch('/audio/speech', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+    try {
+      const response = await openRouterFetch('/audio/speech', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: profile.model,
+          input: text,
+          voice: providerVoice,
+          response_format: format,
+          speed,
+        }),
+      });
 
-  const arrayBuffer = await response.arrayBuffer();
-  if (!arrayBuffer || arrayBuffer.byteLength === 0) {
-    throw new OpenRouterError('OpenRouter TTS returned empty audio');
+      const arrayBuffer = await response.arrayBuffer();
+      if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+        throw new OpenRouterError('OpenRouter TTS returned empty audio');
+      }
+
+      let buffer = Buffer.from(arrayBuffer);
+      let mimeType = profile.mimeType;
+      let outFormat = format;
+
+      if (format === 'pcm') {
+        buffer = pcm16ToWav(buffer, profile.sampleRate ?? 24000, 1);
+        mimeType = 'audio/wav';
+        outFormat = 'wav';
+      }
+
+      console.log('[OpenRouter] provider=openrouter TTS response:', {
+        model: profile.model,
+        bytes: buffer.length,
+        mimeType,
+      });
+
+      return { buffer, mimeType, format: outFormat };
+    } catch (err) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const retryable =
+        err instanceof OpenRouterError &&
+        (err.status === 400 || err.status === 404 || msg.includes('does not exist'));
+      console.warn(`[OpenRouter] TTS model failed (${profile.model}):`, msg);
+      if (!retryable) {
+        throw err;
+      }
+    }
   }
 
-  console.log('[OpenRouter] provider=openrouter TTS response:', {
-    bytes: arrayBuffer.byteLength,
-    mimeType,
-  });
-
-  return {
-    buffer: Buffer.from(arrayBuffer),
-    mimeType,
-    format,
-  };
+  throw lastError ?? new OpenRouterError('OpenRouter TTS failed for all models');
 }
 
 /**

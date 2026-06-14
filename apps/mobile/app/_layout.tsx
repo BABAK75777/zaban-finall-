@@ -16,7 +16,7 @@ export default function RootLayout() {
           },
         }}
       >
-        <Stack.Screen name="index" options={{ title: 'Reading' }} />
+        <Stack.Screen name="index" options={{ title: 'Reading', headerShown: false }} />
         <Stack.Screen name="library" options={{ title: 'Library' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
       </Stack>
