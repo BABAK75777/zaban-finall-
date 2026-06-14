@@ -136,7 +136,9 @@ function SliderRow({ title, leftLabel, rightLabel, value, onChange, theme, onDra
   );
 }
 
-const KEYBOARD_FOOTER_HEIGHT = 52;
+const KEYBOARD_FOOTER_HEIGHT = 36;
+const PINNED_INPUT_HEIGHT = 88;
+const CLOSED_COMPOSER_HEIGHT = PINNED_INPUT_HEIGHT + 72;
 
 export function AiPromptModal({
   visible,
@@ -155,9 +157,13 @@ export function AiPromptModal({
   const [scrollEnabled, setScrollEnabled] = useState(true);
 
   const colors = theme;
-  const isDark = themeId === 'dark';
   const keyboardAppearance = themeId === 'light' || themeId === 'cream' ? 'light' : 'dark';
   const keyboardOpen = keyboardHeight > 0;
+  const keyboardBottom = Platform.OS === 'android' ? keyboardHeight : 0;
+  const composerBottom = keyboardOpen ? keyboardBottom + KEYBOARD_FOOTER_HEIGHT : insets.bottom;
+  const scrollReserve = keyboardOpen
+    ? keyboardBottom + KEYBOARD_FOOTER_HEIGHT + PINNED_INPUT_HEIGHT + space.sm
+    : CLOSED_COMPOSER_HEIGHT + insets.bottom;
 
   const handleSliderDragStart = useCallback(() => {
     setScrollEnabled(false);
@@ -193,9 +199,7 @@ export function AiPromptModal({
     }
   }, [visible]);
 
-  const scrollBottomPadding = keyboardOpen
-    ? KEYBOARD_FOOTER_HEIGHT + space.sm
-    : insets.bottom + space.xxl;
+  const scrollBottomPadding = space.sm;
 
   const focusPromptInput = useCallback(() => {
     const delay = Platform.OS === 'android' ? 160 : 60;
@@ -261,13 +265,13 @@ export function AiPromptModal({
     onClose();
   }, [onClose]);
 
-  const generateButton = (
+  const generateButton = (compact: boolean) => (
     <Pressable
       onPress={() => void handleGenerate()}
       disabled={generating}
       style={({ pressed }) => [
         styles.generateBtn,
-        keyboardOpen && styles.generateBtnKeyboard,
+        compact && styles.generateBtnCompact,
         {
           backgroundColor: colors.accent,
           borderColor: colors.accentGlow,
@@ -283,12 +287,44 @@ export function AiPromptModal({
       {generating ? (
         <View style={styles.generateLoadingRow}>
           <ActivityIndicator color="#FFFFFF" size="small" />
-          <Text style={styles.generateLabel}>Generating…</Text>
+          <Text style={[styles.generateLabel, compact && styles.generateLabelCompact]}>
+            Generating…
+          </Text>
         </View>
       ) : (
-        <Text style={styles.generateLabel}>Generate</Text>
+        <Text style={[styles.generateLabel, compact && styles.generateLabelCompact]}>Generate</Text>
       )}
     </Pressable>
+  );
+
+  const promptField = (
+    <View
+      style={[
+        styles.inputShell,
+        keyboardOpen && styles.inputShellKeyboard,
+        glassStyle(theme, true),
+        { borderColor: colors.border },
+      ]}
+    >
+      <TextInput
+        style={[
+          styles.promptInput,
+          keyboardOpen && styles.promptInputKeyboard,
+          { color: colors.inputText },
+        ]}
+        multiline
+        placeholder="What do you want to practice today?"
+        placeholderTextColor={colors.inputPlaceholder}
+        value={settings.prompt}
+        onChangeText={(prompt) => patch({ prompt })}
+        onFocus={focusPromptInput}
+        keyboardAppearance={keyboardAppearance}
+        cursorColor={colors.accent}
+        selectionColor={colors.accentSoft}
+        underlineColorAndroid="transparent"
+        textAlignVertical="top"
+      />
+    </View>
   );
 
   const handleCloseRef = useRef(handleClose);
@@ -325,8 +361,6 @@ export function AiPromptModal({
               behavior={Platform.OS === 'ios' ? 'padding' : undefined}
               keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
             >
-              <View style={[styles.glowOrb, isDark && styles.glowOrbDark]} pointerEvents="none" />
-
               <View style={styles.header} {...swipeCloseResponder.panHandlers}>
                 <View style={styles.headerCenter}>
                   <View style={[styles.dragHandle, { backgroundColor: colors.border }]} />
@@ -350,7 +384,7 @@ export function AiPromptModal({
 
               <ScrollView
                 ref={scrollRef}
-                style={styles.scroll}
+                style={[styles.scroll, { marginBottom: scrollReserve }]}
                 contentContainerStyle={[
                   styles.scrollContent,
                   { paddingBottom: scrollBottomPadding },
@@ -424,42 +458,30 @@ export function AiPromptModal({
                     );
                   })}
                 </View>
-
-                <Text style={[styles.sectionTitle, styles.promptSectionTitle, { color: colors.textDim }]}>
-                  Your Request
-                </Text>
-                <View style={[styles.inputShell, glassStyle(theme, true), { borderColor: colors.border }]}>
-                  <TextInput
-                    style={[styles.promptInput, { color: colors.inputText }]}
-                    multiline
-                    placeholder="What do you want to practice today?"
-                    placeholderTextColor={colors.inputPlaceholder}
-                    value={settings.prompt}
-                    onChangeText={(prompt) => patch({ prompt })}
-                    onFocus={focusPromptInput}
-                    keyboardAppearance={keyboardAppearance}
-                    cursorColor={colors.accent}
-                    selectionColor={colors.accentSoft}
-                    underlineColorAndroid="transparent"
-                    textAlignVertical="top"
-                  />
-                </View>
-
-                {!keyboardOpen ? generateButton : null}
               </ScrollView>
+
+              <View style={[styles.composerDock, { bottom: composerBottom }]}>
+                {!keyboardOpen ? (
+                  <Text style={[styles.sectionTitle, styles.promptSectionTitle, { color: colors.textDim }]}>
+                    Your Request
+                  </Text>
+                ) : null}
+                {promptField}
+                {!keyboardOpen ? generateButton(false) : null}
+              </View>
 
               {keyboardOpen ? (
                 <View
                   style={[
                     styles.keyboardFooter,
                     {
-                      bottom: Platform.OS === 'android' ? keyboardHeight : 0,
+                      bottom: keyboardBottom,
                       backgroundColor: colors.bg,
                       borderTopColor: colors.border,
                     },
                   ]}
                 >
-                  {generateButton}
+                  {generateButton(true)}
                 </View>
               ) : null}
             </KeyboardAvoidingView>
@@ -496,26 +518,12 @@ const styles = StyleSheet.create({
   flexRelative: {
     position: 'relative',
   },
-  glowOrb: {
-    position: 'absolute',
-    top: -80,
-    alignSelf: 'center',
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    backgroundColor: 'rgba(168, 85, 247, 0.12)',
-    opacity: 0.6,
-  },
-  glowOrbDark: {
-    backgroundColor: 'rgba(168, 85, 247, 0.22)',
-    opacity: 1,
-  },
   header: {
     position: 'relative',
     paddingTop: space.sm,
-    paddingBottom: space.lg,
+    paddingBottom: space.md,
     zIndex: 2,
-    minHeight: CLOSE_SIZE + space.md,
+    minHeight: CLOSE_SIZE + space.sm,
   },
   headerCenter: {
     width: '100%',
@@ -554,21 +562,20 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: {
     paddingBottom: space.md,
-    gap: space.xs,
   },
   sliderSection: {
-    marginBottom: space.sm,
+    marginBottom: 2,
     width: '100%',
   },
   sliderSectionTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
-    letterSpacing: 1.6,
+    letterSpacing: 1.4,
     textTransform: 'uppercase',
     textAlign: 'center',
     alignSelf: 'center',
     width: '100%',
-    marginBottom: space.xs,
+    marginBottom: 2,
   },
   section: {
     marginBottom: space.sm,
@@ -586,7 +593,14 @@ const styles = StyleSheet.create({
     marginTop: space.sm,
   },
   promptSectionTitle: {
-    marginTop: space.lg,
+    marginTop: 0,
+    marginBottom: space.sm,
+  },
+  composerDock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 3,
   },
   inputShell: {
     borderRadius: 16,
@@ -595,12 +609,24 @@ const styles = StyleSheet.create({
     maxHeight: 220,
     marginBottom: space.xs,
   },
+  inputShellKeyboard: {
+    minHeight: PINNED_INPUT_HEIGHT,
+    maxHeight: PINNED_INPUT_HEIGHT,
+    marginBottom: 0,
+    paddingVertical: space.sm,
+  },
   promptInput: {
     fontSize: 16,
     lineHeight: 24,
     minHeight: 120,
     maxHeight: 184,
     padding: 0,
+  },
+  promptInputKeyboard: {
+    minHeight: 64,
+    maxHeight: 64,
+    fontSize: 15,
+    lineHeight: 22,
   },
   segmentRow: {
     flexDirection: 'row',
@@ -630,7 +656,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: space.sm,
-    marginBottom: space.md,
+    marginBottom: space.sm,
   },
   featureChip: {
     borderRadius: 18,
@@ -666,17 +692,34 @@ const styles = StyleSheet.create({
       android: { elevation: 4 },
     }),
   },
-  generateBtnKeyboard: {
+  generateBtnCompact: {
     marginTop: 0,
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: space.md,
+    alignSelf: 'flex-end',
+    minWidth: 96,
+    ...Platform.select({
+      ios: {
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.18,
+        shadowRadius: 3,
+      },
+      android: { elevation: 2 },
+    }),
   },
   keyboardFooter: {
     position: 'absolute',
     left: 0,
     right: 0,
     paddingHorizontal: space.lg,
-    paddingTop: space.sm,
-    paddingBottom: space.sm,
+    paddingTop: space.xs,
+    paddingBottom: space.xs,
     borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    minHeight: KEYBOARD_FOOTER_HEIGHT,
   },
   generateLoadingRow: {
     flexDirection: 'row',
@@ -689,5 +732,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
+  },
+  generateLabelCompact: {
+    fontSize: 11,
+    letterSpacing: 0.4,
   },
 });
