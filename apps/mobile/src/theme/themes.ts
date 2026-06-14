@@ -1,14 +1,40 @@
 import { DARK_TOKENS } from './darkTokens';
 import type { ThemeId, ThemePalette } from './themeTypes';
+import { Platform } from 'react-native';
 
 const D = DARK_TOKENS;
 
 /** Playfair Display SemiBold — loaded in app/_layout.tsx */
-const sentenceFont = 'PlayfairDisplay_600SemiBold';
+const sentenceFont = Platform.select({
+  ios: 'PlayfairDisplay_600SemiBold',
+  android: 'PlayfairDisplay_600SemiBold',
+  default: 'PlayfairDisplay_600SemiBold',
+}) as string;
 
-/** Inter — loaded in app/_layout.tsx */
-const uiFont = 'Inter_400Regular';
-const uiFontSemibold = 'Inter_600SemiBold';
+/** Inter — loaded in app/_layout.tsx; falls back to system sans-serif if unavailable */
+const uiFont = Platform.select({
+  ios: 'Inter_400Regular',
+  android: 'Inter_400Regular',
+  default: 'Inter_400Regular',
+}) as string;
+const uiFontSemibold = Platform.select({
+  ios: 'Inter_600SemiBold',
+  android: 'Inter_600SemiBold',
+  default: 'Inter_600SemiBold',
+}) as string;
+
+/** System fallbacks when custom fonts fail to load */
+export const FALLBACK_SENTENCE_FONT = Platform.select({
+  ios: 'Georgia',
+  android: 'serif',
+  default: 'Georgia',
+}) as string;
+
+export const FALLBACK_UI_FONT = Platform.select({
+  ios: 'System',
+  android: 'sans-serif',
+  default: 'System',
+}) as string;
 
 const darkTheme: ThemePalette = {
   id: 'dark',

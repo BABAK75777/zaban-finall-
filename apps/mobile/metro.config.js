@@ -94,6 +94,14 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     }
   }
 
+  if (moduleName.startsWith('@expo-google-fonts/')) {
+    const fontPkgRoot = path.resolve(projectRoot, 'node_modules', moduleName);
+    const mainEntry = path.join(fontPkgRoot, 'index.js');
+    if (require('fs').existsSync(mainEntry)) {
+      return { type: 'sourceFile', filePath: mainEntry };
+    }
+  }
+
   if (defaultResolveRequest) {
     return defaultResolveRequest(context, moduleName, platform);
   }

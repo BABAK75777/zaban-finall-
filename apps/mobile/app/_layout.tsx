@@ -5,22 +5,31 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 
-SplashScreen.preventAutoHideAsync();
+void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     PlayfairDisplay_600SemiBold,
     Inter_400Regular,
     Inter_600SemiBold,
   });
 
-  useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded]);
+  const ready = fontsLoaded || !!fontError;
 
-  if (!fontsLoaded) {
+  useEffect(() => {
+    if (!ready) return;
+    SplashScreen.hideAsync().catch(() => {});
+  }, [ready]);
+
+  // Never block startup indefinitely if font loading stalls.
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, 4000);
+    return () => clearTimeout(timeout);
+  }, []);
+
+  if (!ready) {
     return null;
   }
 
@@ -34,7 +43,7 @@ export default function RootLayout() {
           },
           headerTintColor: '#17151F',
           headerTitleStyle: {
-            fontFamily: 'Inter_600SemiBold',
+            fontFamily: fontsLoaded ? 'Inter_600SemiBold' : undefined,
             fontWeight: '600',
           },
         }}
