@@ -120,6 +120,7 @@ export function SettingSlider({
         onPanResponderGrant: (evt) => {
           beginDrag();
           const pageX = evt.nativeEvent.pageX;
+          updateFromPageX(pageX, true);
           syncTrackMetrics(() => {
             updateFromPageX(pageX, true);
           });
