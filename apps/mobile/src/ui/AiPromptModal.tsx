@@ -19,6 +19,7 @@ import { glassStyle } from '../theme/glass';
 import type { ThemeId, ThemePalette } from '../theme/themeTypes';
 import { SettingSlider } from './SettingSlider';
 import { space } from './spacing';
+import { resolveOutputLanguage } from '../utils/resolveOutputLanguage';
 
 export type AiVoiceType = 'male' | 'female';
 
@@ -55,6 +56,7 @@ export interface AiGeneratePayload {
   difficulty: number;
   tone: number;
   textLength: number;
+  targetLanguage?: string;
 }
 
 interface AiGenerateResponse {
@@ -138,7 +140,6 @@ function SliderRow({ title, leftLabel, rightLabel, value, onChange, theme, onDra
 
 const KEYBOARD_FOOTER_HEIGHT = 36;
 const PINNED_INPUT_HEIGHT = 88;
-const CLOSED_COMPOSER_HEIGHT = PINNED_INPUT_HEIGHT + 72;
 
 export function AiPromptModal({
   visible,
@@ -150,6 +151,7 @@ export function AiPromptModal({
 }: AiPromptModalProps) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
+  const inputRef = useRef<TextInput>(null);
   const generateInFlightRef = useRef(false);
   const [settings, setSettings] = useState<AiPromptSettings>(defaultSettings);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -160,10 +162,9 @@ export function AiPromptModal({
   const keyboardAppearance = themeId === 'light' || themeId === 'cream' ? 'light' : 'dark';
   const keyboardOpen = keyboardHeight > 0;
   const keyboardBottom = Platform.OS === 'android' ? keyboardHeight : 0;
-  const composerBottom = keyboardOpen ? keyboardBottom + KEYBOARD_FOOTER_HEIGHT : insets.bottom;
-  const scrollReserve = keyboardOpen
-    ? keyboardBottom + KEYBOARD_FOOTER_HEIGHT + PINNED_INPUT_HEIGHT + space.sm
-    : CLOSED_COMPOSER_HEIGHT + insets.bottom;
+  const scrollBottomPadding = keyboardOpen
+    ? keyboardHeight + KEYBOARD_FOOTER_HEIGHT + space.md
+    : insets.bottom + space.md;
 
   const handleSliderDragStart = useCallback(() => {
     setScrollEnabled(false);
@@ -199,8 +200,6 @@ export function AiPromptModal({
     }
   }, [visible]);
 
-  const scrollBottomPadding = space.sm;
-
   const focusPromptInput = useCallback(() => {
     const delay = Platform.OS === 'android' ? 160 : 60;
     setTimeout(() => {
@@ -210,7 +209,7 @@ export function AiPromptModal({
 
   useEffect(() => {
     if (keyboardHeight > 0) {
-      const delay = Platform.OS === 'android' ? 120 : 40;
+      const delay = Platform.OS === 'android' ? 80 : 40;
       const timer = setTimeout(() => {
         scrollRef.current?.scrollToEnd({ animated: true });
       }, delay);
@@ -237,11 +236,15 @@ export function AiPromptModal({
       return;
     }
 
+    const outputLanguage = resolveOutputLanguage(prompt);
     const payload: AiGeneratePayload = {
       prompt,
       difficulty: settings.difficulty,
       tone: settings.tone,
       textLength: settings.textLength,
+      ...(outputLanguage.explicit && outputLanguage.code !== 'en'
+        ? { targetLanguage: outputLanguage.code }
+        : {}),
     };
 
     generateInFlightRef.current = true;
@@ -307,6 +310,7 @@ export function AiPromptModal({
       ]}
     >
       <TextInput
+        ref={inputRef}
         style={[
           styles.promptInput,
           keyboardOpen && styles.promptInputKeyboard,
@@ -384,7 +388,7 @@ export function AiPromptModal({
 
               <ScrollView
                 ref={scrollRef}
-                style={[styles.scroll, { marginBottom: scrollReserve }]}
+                style={styles.scroll}
                 contentContainerStyle={[
                   styles.scrollContent,
                   { paddingBottom: scrollBottomPadding },
@@ -392,7 +396,7 @@ export function AiPromptModal({
                 showsVerticalScrollIndicator={false}
                 scrollEnabled={scrollEnabled}
                 keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
+                keyboardDismissMode="interactive"
                 nestedScrollEnabled
               >
                 <SliderRow
@@ -450,6 +454,9 @@ export function AiPromptModal({
                             styles.featureChipText,
                             { color: on ? colors.accent : colors.textMuted },
                           ]}
+                          numberOfLines={2}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.8}
                         >
                           {on ? '✓ ' : ''}
                           {feat.label}
@@ -458,17 +465,13 @@ export function AiPromptModal({
                     );
                   })}
                 </View>
-              </ScrollView>
 
-              <View style={[styles.composerDock, { bottom: composerBottom }]}>
-                {!keyboardOpen ? (
-                  <Text style={[styles.sectionTitle, styles.promptSectionTitle, { color: colors.textDim }]}>
-                    Your Request
-                  </Text>
-                ) : null}
+                <Text style={[styles.sectionTitle, styles.promptSectionTitle, { color: colors.textDim }]}>
+                  Your Request
+                </Text>
                 {promptField}
                 {!keyboardOpen ? generateButton(false) : null}
-              </View>
+              </ScrollView>
 
               {keyboardOpen ? (
                 <View
@@ -593,14 +596,8 @@ const styles = StyleSheet.create({
     marginTop: space.sm,
   },
   promptSectionTitle: {
-    marginTop: 0,
+    marginTop: space.xs,
     marginBottom: space.sm,
-  },
-  composerDock: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    zIndex: 3,
   },
   inputShell: {
     borderRadius: 16,
@@ -654,19 +651,24 @@ const styles = StyleSheet.create({
   },
   featureRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
-    marginBottom: space.sm,
+    gap: space.xs,
+    marginBottom: 0,
   },
   featureChip: {
-    borderRadius: 18,
-    paddingHorizontal: space.sm + 2,
-    paddingVertical: 7,
+    flex: 1,
+    borderRadius: 14,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
     borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
   },
   featureChipText: {
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 12,
   },
   sliderLabels: {
     flexDirection: 'row',

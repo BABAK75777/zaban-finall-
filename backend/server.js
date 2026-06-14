@@ -21,6 +21,12 @@ import usageRoutes from './routes/usage.js';
 import { getCacheFilePath, cacheExists, readCache, writeCache, getMimeType } from './utils/cache.js';
 import { getOpenAIApiKey, isOpenAIApiKeyConfigured, isOpenRouterConfigured } from './utils/env.js';
 import { openRouterChatCompletion, openRouterSpeech, OpenRouterError } from './utils/openrouter.js';
+import {
+  resolveOutputLanguage,
+  resolveOutputLanguageFromCode,
+  buildAiGenerateMessages,
+  isInvalidAiGenerateResponse,
+} from './utils/resolveOutputLanguage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1775,7 +1781,7 @@ app.post('/ocr', async (req, res) => {
 // ============================================================================
 
 /**
- * POST /ai/generate - Generate English practice reading text via OpenRouter chat
+ * POST /ai/generate - Generate practice reading text via OpenRouter chat
  */
 app.post('/ai/generate', async (req, res) => {
   const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -1793,7 +1799,7 @@ app.post('/ai/generate', async (req, res) => {
       });
     }
 
-    const { prompt, difficulty, tone, textLength, voiceType } = req.body ?? {};
+    const { prompt, difficulty, tone, textLength, voiceType, targetLanguage } = req.body ?? {};
 
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
       return res.status(400).json({
@@ -1819,37 +1825,56 @@ app.post('/ai/generate', async (req, res) => {
     const difficultyLabel =
       d <= 0.25 ? 'beginner (A1-A2)' : d <= 0.5 ? 'lower-intermediate (B1)' : d <= 0.75 ? 'upper-intermediate (B2)' : 'advanced (C1)';
     const toneLabel =
-      t <= 0.25 ? 'formal academic' : t <= 0.5 ? 'neutral educational' : t <= 0.75 ? 'conversational' : 'casual street English';
+      t <= 0.25 ? 'formal academic' : t <= 0.5 ? 'neutral educational' : t <= 0.75 ? 'conversational' : 'casual everyday';
     const trimmedPrompt = prompt.trim().slice(0, 2000);
+    let outputLanguage = resolveOutputLanguage(trimmedPrompt);
 
-    const generatedText = await openRouterChatCompletion({
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You write English practice reading passages for language learners. Return only the practice text. Use clear sentences suitable for read-aloud practice. No titles, no bullet lists, no commentary.',
-        },
-        {
-          role: 'user',
-          content: `Topic/request: ${trimmedPrompt}
-Difficulty: ${difficultyLabel}
-Tone/style: ${toneLabel}
-Target voice context: ${voice}
-Length: about ${sentenceTarget} sentences.
+    if (typeof targetLanguage === 'string' && targetLanguage.trim()) {
+      const fromClient = resolveOutputLanguageFromCode(targetLanguage);
+      if (fromClient) {
+        outputLanguage = fromClient;
+      }
+    }
 
-Write natural connected prose split into normal sentences.`,
-        },
-      ],
-      max_tokens: 4096,
-    });
+    console.log(`[AI:${requestId}] Output language`, outputLanguage);
 
-    const text = typeof generatedText === 'string' ? generatedText.trim() : '';
+    const messageParams = {
+      trimmedPrompt,
+      difficultyLabel,
+      toneLabel,
+      voice,
+      sentenceTarget,
+      outputLanguage,
+    };
+
+    let text = '';
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const generatedText = await openRouterChatCompletion({
+        messages: buildAiGenerateMessages({
+          ...messageParams,
+          strict: attempt > 0,
+        }),
+        max_tokens: 4096,
+      });
+
+      text = typeof generatedText === 'string' ? generatedText.trim() : '';
+      if (text && !isInvalidAiGenerateResponse(text, outputLanguage)) {
+        break;
+      }
+
+      console.warn(`[AI:${requestId}] Invalid AI response attempt ${attempt + 1}`, {
+        preview: text.slice(0, 160),
+        outputLanguage,
+      });
+      text = '';
+    }
+
     if (!text) {
       return res.status(500).json({
         ok: false,
-        error: 'EMPTY_RESPONSE',
+        error: 'LANGUAGE_GENERATION_FAILED',
         debugId: requestId,
-        details: 'AI returned empty text.',
+        details: `Could not generate valid ${outputLanguage.language} text. Try again or rephrase the language in your request.`,
       });
     }
 
