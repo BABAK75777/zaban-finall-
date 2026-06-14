@@ -1,45 +1,38 @@
 /**
- * TTS Chunk Generator - Generates audio for chunks with retry logic
+ * TTS Chunk Generator — OpenRouter TTS with retry logic
  */
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import { openRouterSpeech, OpenRouterError } from './utils/openrouter.js';
+import { isOpenRouterConfigured } from './utils/env.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const CACHE_DIR = path.join(__dirname, 'cache', 'tts');
 
-/**
- * Compute hash for chunk caching (includes all parameters)
- */
 function computeHash(text, voiceId, preset, speed, pitch, format, sampleRate) {
   const normalized = text.trim().replace(/\s+/g, ' ').replace(/\n+/g, '\n');
   const input = `${normalized}|${voiceId}|${preset || 'default'}|${speed}|${pitch || 0}|${format}|${sampleRate || 24000}`;
   return crypto.createHash('sha1').update(input).digest('hex');
 }
 
-/**
- * Check if chunk is cached
- */
 function getCachedChunk(hash, format) {
   const cacheFile = path.join(CACHE_DIR, `${hash}.${format}`);
   if (fs.existsSync(cacheFile)) {
-    const audioBuffer = fs.readFileSync(cacheFile);
-    return audioBuffer.toString('base64');
+    return fs.readFileSync(cacheFile).toString('base64');
   }
   return null;
 }
 
-/**
- * Save chunk to cache
- */
 function saveCachedChunk(hash, format, audioBase64) {
   try {
-    const cacheFile = path.join(CACHE_DIR, `${hash}.${format}`);
-    const audioBuffer = Buffer.from(audioBase64, 'base64');
-    fs.writeFileSync(cacheFile, audioBuffer);
+    if (!fs.existsSync(CACHE_DIR)) {
+      fs.mkdirSync(CACHE_DIR, { recursive: true });
+    }
+    fs.writeFileSync(path.join(CACHE_DIR, `${hash}.${format}`), Buffer.from(audioBase64, 'base64'));
     return true;
   } catch (err) {
     console.error(`[TTS:ChunkGenerator] Failed to save cache:`, err);
@@ -47,158 +40,130 @@ function saveCachedChunk(hash, format, audioBase64) {
   }
 }
 
+function generateSilentWavBuffer() {
+  const sampleRate = 22050;
+  const bitsPerSample = 16;
+  const numChannels = 1;
+  const numSamples = Math.floor(sampleRate * 0.5);
+  const dataSize = numSamples * numChannels * (bitsPerSample / 8);
+  const fileSize = 36 + dataSize;
+  const buffer = Buffer.alloc(fileSize);
+  let offset = 0;
+  buffer.write('RIFF', offset); offset += 4;
+  buffer.writeUInt32LE(fileSize - 8, offset); offset += 4;
+  buffer.write('WAVE', offset); offset += 4;
+  buffer.write('fmt ', offset); offset += 4;
+  buffer.writeUInt32LE(16, offset); offset += 4;
+  buffer.writeUInt16LE(1, offset); offset += 2;
+  buffer.writeUInt16LE(numChannels, offset); offset += 2;
+  buffer.writeUInt32LE(sampleRate, offset); offset += 4;
+  buffer.writeUInt32LE(sampleRate * numChannels * (bitsPerSample / 8), offset); offset += 4;
+  buffer.writeUInt16LE(numChannels * (bitsPerSample / 8), offset); offset += 2;
+  buffer.writeUInt16LE(bitsPerSample, offset); offset += 2;
+  buffer.write('data', offset); offset += 4;
+  buffer.writeUInt32LE(dataSize, offset);
+  return buffer;
+}
+
 /**
- * Generate audio for a chunk with retry logic
- * 
  * @param {Object} params
- * @param {string} params.text - Chunk text
- * @param {string} params.voiceId - Voice ID
- * @param {string} params.preset - Voice preset
- * @param {number} params.speed - Playback speed
- * @param {number} params.pitch - Pitch adjustment
- * @param {string} params.format - Audio format
- * @param {number} params.sampleRate - Sample rate
- * @param {string} params.apiKey - Google API key
- * @param {AbortSignal} params.abortSignal - Abort signal
- * @param {number} params.maxRetries - Max retry attempts
  * @returns {Promise<{audioBase64: string, cacheHit: boolean, latencyMs: number, hash: string}>}
  */
 export async function generateChunkAudio({
   text,
-  voiceId = 'en-US-Standard-C',
+  voiceId = 'alloy',
   preset = 'default',
   speed = 1.0,
   pitch = 0.0,
   format = 'mp3',
   sampleRate = 24000,
-  apiKey,
   abortSignal,
   maxRetries = 3,
 }) {
   const startTime = Date.now();
   const hash = computeHash(text, voiceId, preset, speed, pitch, format, sampleRate);
-  
-  // Check cache first (try the exact format, then fallback to common formats)
+  const voice = typeof voiceId === 'string' && voiceId.includes('-') ? 'alloy' : (voiceId || 'alloy');
+
   const formats = [format, 'mp3', 'wav', 'ogg'];
-  let cachedAudio = null;
   for (const fmt of formats) {
-    cachedAudio = getCachedChunk(hash, fmt);
-    if (cachedAudio) {
-      break;
+    const cached = getCachedChunk(hash, fmt);
+    if (cached) {
+      return { audioBase64: cached, cacheHit: true, latencyMs: Date.now() - startTime, hash };
     }
   }
-  
-  if (cachedAudio) {
-    const latencyMs = Date.now() - startTime;
-    return {
-      audioBase64: cachedAudio,
-      cacheHit: true,
-      latencyMs,
-      hash,
-    };
+
+  if (!isOpenRouterConfigured()) {
+    if (process.env.TTS_DEV_FALLBACK_SILENT_WAV === 'true') {
+      const audioBase64 = generateSilentWavBuffer().toString('base64');
+      saveCachedChunk(hash, format, audioBase64);
+      return { audioBase64, cacheHit: false, latencyMs: Date.now() - startTime, hash };
+    }
+    throw new Error('OPENROUTER_API_KEY is not configured');
   }
 
-  // Generate with retry
+  const responseFormat = format.toLowerCase() === 'wav' ? 'wav' : 'mp3';
   let lastError;
-  const delays = [250, 750, 1500]; // Exponential backoff
-  
+  const delays = [250, 750, 1500];
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    // Check if aborted
     if (abortSignal?.aborted) {
       throw new Error('Generation aborted');
     }
 
     try {
-      const ttsResponse = await fetch(
-        `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            input: { text },
-            voice: {
-              languageCode: 'en-US',
-              name: voiceId,
-            },
-            audioConfig: {
-              audioEncoding: format.toUpperCase(),
-              sampleRateHertz: sampleRate,
-              speakingRate: speed,
-            },
-          }),
-          signal: abortSignal,
-        }
-      );
+      const { buffer } = await openRouterSpeech({
+        text,
+        voice,
+        speed,
+        responseFormat,
+      });
 
-      if (!ttsResponse.ok) {
-        const errorText = await ttsResponse.text();
-        let errorBody;
-        try {
-          errorBody = JSON.parse(errorText);
-        } catch {
-          errorBody = { raw: errorText };
-        }
-        
-        // Don't retry on 4xx errors (client errors)
-        if (ttsResponse.status >= 400 && ttsResponse.status < 500) {
-          throw new Error(`TTS API error: ${ttsResponse.status} ${JSON.stringify(errorBody)}`);
-        }
-        
-        // Retry on 5xx errors
-        throw new Error(`TTS API error: ${ttsResponse.status} ${JSON.stringify(errorBody)}`);
+      if (abortSignal?.aborted) {
+        throw new Error('Generation aborted');
       }
 
-      const data = await ttsResponse.json();
-      
-      if (!data.audioContent) {
-        throw new Error('No audioContent in TTS API response');
-      }
-
-      const audioBase64 = data.audioContent;
-      const latencyMs = Date.now() - startTime;
-
-      // Save to cache
+      const audioBase64 = buffer.toString('base64');
       saveCachedChunk(hash, format, audioBase64);
-
       return {
         audioBase64,
         cacheHit: false,
-        latencyMs,
+        latencyMs: Date.now() - startTime,
         hash,
       };
     } catch (error) {
       lastError = error;
-      
-      // Don't retry if aborted
+
       if (abortSignal?.aborted || error.name === 'AbortError') {
         throw new Error('Generation aborted');
       }
-      
-      // Don't retry on last attempt
+
+      if (process.env.TTS_DEV_FALLBACK_SILENT_WAV === 'true') {
+        const audioBase64 = generateSilentWavBuffer().toString('base64');
+        saveCachedChunk(hash, format, audioBase64);
+        return { audioBase64, cacheHit: false, latencyMs: Date.now() - startTime, hash };
+      }
+
+      const status = error instanceof OpenRouterError ? error.status : undefined;
+      if (typeof status === 'number' && status >= 400 && status < 500) {
+        throw error;
+      }
+
       if (attempt < maxRetries) {
         const delay = delays[Math.min(attempt, delays.length - 1)];
         console.warn(
-          `[TTS:ChunkGenerator] Attempt ${attempt + 1}/${maxRetries + 1} failed, retrying in ${delay}ms:`,
+          `[TTS:ChunkGenerator] provider=openrouter attempt ${attempt + 1}/${maxRetries + 1} failed, retry in ${delay}ms:`,
           error.message
         );
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
 
-  // All retries failed
   throw new Error(`Failed after ${maxRetries + 1} attempts: ${lastError?.message || 'Unknown error'}`);
 }
 
-/**
- * Estimate audio duration (rough estimate: ~150 words per minute)
- */
 export function estimateDurationMs(text, speed = 1.0) {
   const words = text.trim().split(/\s+/).length;
   const wordsPerMinute = 150 * speed;
-  const minutes = words / wordsPerMinute;
-  return Math.round(minutes * 60 * 1000);
+  return Math.round((words / wordsPerMinute) * 60 * 1000);
 }
-

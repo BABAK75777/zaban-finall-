@@ -14,7 +14,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Mock environment variables
-process.env.GOOGLE_API_KEY = 'test-api-key-12345';
+process.env.OPENROUTER_API_KEY = 'sk-or-v1-test-key';
+process.env.OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 process.env.PORT = '3002'; // Use different port for tests
 
 // Import server after setting env vars

@@ -67,7 +67,7 @@ async function testTtsEndpoint(testName, payload, expectedStatus, expectedError 
 async function runTests() {
   console.log('🚀 Starting TTS Endpoint Tests\n');
   console.log('⚠️  Make sure the backend server is running on', BASE_URL);
-  console.log('⚠️  Make sure GOOGLE_API_KEY is set in backend/.env\n');
+  console.log('⚠️  Make sure OPENROUTER_API_KEY is set in backend/.env\n');
 
   const results = [];
 
