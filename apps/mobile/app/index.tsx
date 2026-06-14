@@ -51,6 +51,7 @@ import {
   buildKeepSentenceIds,
   InFlightTtsFetch,
   clearSentenceCacheIfIdleExpired,
+  pruneSentenceCacheToKeepIds,
   touchLastActivityAt,
 } from '@zaban/tts-mobile';
 import type { PlaySource, SentenceCacheSplitMode } from '@zaban/tts-mobile';
@@ -68,10 +69,13 @@ import { AiPromptModal, type AiVoiceType } from '../src/ui/AiPromptModal';
 import { SettingSlider } from '../src/ui/SettingSlider';
 import { TopAmbientBar } from '../src/ui/TopAmbientBar';
 import { space } from '../src/ui/spacing';
+import {
+  disposeShadowRecording as disposeShadowRecordingSession,
+  startShadowRecording,
+  stopShadowRecording as stopShadowRecordingSession,
+} from '../src/audio/shadowRecordingSession';
 
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ||
-  'https://zaban-api-875817275251.europe-west1.run.app';
+import { API_BASE_URL } from '../src/config/apiBaseUrl';
 
 const DEFAULT_TTS_VOICE: AiVoiceType = 'female';
 const DEFAULT_AI_SPEED = 1.0;
@@ -223,7 +227,7 @@ function allowNetworkForPlay(
   return allowNetworkForSource(source, cachedPath, sentenceGenerated);
 }
 
-type ShadowPhase = 'idle' | 'recording' | 'playing';
+type ShadowPhase = 'idle' | 'starting' | 'recording' | 'playing';
 
 type ShadowMicPermission =
   | { granted: true }
@@ -361,6 +365,11 @@ export default function ReadingScreen() {
   const [textSize, setTextSize] = useState(DEFAULT_TEXT_SIZE);
   const [readUnit, setReadUnit] = useState<ReadUnit>(DEFAULT_READ_UNIT);
   const [shadowPhase, setShadowPhase] = useState<ShadowPhase>('idle');
+  const shadowPhaseRef = useRef<ShadowPhase>('idle');
+  const setShadowPhaseSync = useCallback((phase: ShadowPhase) => {
+    shadowPhaseRef.current = phase;
+    setShadowPhase(phase);
+  }, []);
   const [shadowHint, setShadowHint] = useState<string | null>(null);
   const [settingsScrollEnabled, setSettingsScrollEnabled] = useState(true);
 
@@ -368,9 +377,9 @@ export default function ReadingScreen() {
   const [guard] = useState(() => new OperationGuard());
   const playbackGenRef = useRef(0);
   const inFlightFetchRef = useRef(new InFlightTtsFetch<Uint8Array>());
-  const shadowRecordingRef = useRef<Audio.Recording | null>(null);
   const shadowGuardTokenRef = useRef<number | null>(null);
   const shadowPlayGenRef = useRef(0);
+  const shadowRecordGenRef = useRef(0);
   const totalNetworkRequestsRef = useRef(0);
   const sessionStartRef = useRef(Date.now());
   const appStateRef = useRef(AppState.currentState);
@@ -522,21 +531,6 @@ export default function ReadingScreen() {
     });
   }, []);
 
-  const stopShadowRecording = useCallback(async () => {
-    const rec = shadowRecordingRef.current;
-    shadowRecordingRef.current = null;
-    if (!rec) {
-      return null;
-    }
-    try {
-      await rec.stopAndUnloadAsync();
-      return rec.getURI();
-    } catch (err) {
-      console.error('[SHADOW] stop recording error:', err);
-      return null;
-    }
-  }, []);
-
   const releaseShadowGuard = useCallback(() => {
     const token = shadowGuardTokenRef.current;
     if (token != null) {
@@ -548,26 +542,20 @@ export default function ReadingScreen() {
   const cancelPlayback = useCallback(() => {
     playbackGenRef.current += 1;
     shadowPlayGenRef.current += 1;
+    shadowRecordGenRef.current += 1;
     releaseShadowGuard();
     guard.cancel();
     player.cancel();
     void (async () => {
-      if (shadowRecordingRef.current) {
-        try {
-          await shadowRecordingRef.current.stopAndUnloadAsync();
-        } catch {
-          /* ignore */
-        }
-        shadowRecordingRef.current = null;
-      }
-      setShadowPhase('idle');
+      await disposeShadowRecordingSession();
+      setShadowPhaseSync('idle');
     })();
     setStatus('stopped');
     setStatusDetail('Stopped.');
     if (shouldTouchLastActivityOn('playback_stop')) {
       void touchLastActivityAt().catch(() => {});
     }
-  }, [guard, player, releaseShadowGuard]);
+  }, [guard, player, releaseShadowGuard, setShadowPhaseSync]);
 
   const syncSentencesFromText = useCallback((raw: string, unit: ReadUnit = readUnitRef.current) => {
     const parts = createReadingChunks(raw, unit);
@@ -578,6 +566,11 @@ export default function ReadingScreen() {
       return next;
     });
     if (parts.length > 0) {
+      const voice = mapTtsVoiceToApi(ttsVoiceTypeRef.current);
+      const keepIds = parts.map((s) => sentenceToMobileId(s, voice));
+      void pruneSentenceCacheToKeepIds(keepIds).catch((err) => {
+        console.error('[TTS:Mobile] prune cache after text sync failed:', err);
+      });
       console.log(
         '[TTS:Mobile] text_ready sentences=',
         parts.length,
@@ -1098,10 +1091,17 @@ export default function ReadingScreen() {
   }, [commitReadingText, persistReadingSession]);
 
   const handleShadow = useCallback(async () => {
-    if (shadowPhase === 'recording') {
-      const uri = await stopShadowRecording();
+    const phase = shadowPhaseRef.current;
+
+    if (phase === 'starting') {
+      return;
+    }
+
+    if (phase === 'recording') {
+      shadowRecordGenRef.current += 1;
+      const uri = await stopShadowRecordingSession();
       releaseShadowGuard();
-      setShadowPhase('idle');
+      setShadowPhaseSync('idle');
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         staysActiveInBackground: true,
@@ -1123,7 +1123,7 @@ export default function ReadingScreen() {
       player.cancel();
 
       try {
-        setShadowPhase('playing');
+        setShadowPhaseSync('playing');
         setStatus('playing');
         setStatusDetail('Playing shadow recording…');
         const requestId = player.getNextRequestId();
@@ -1132,7 +1132,7 @@ export default function ReadingScreen() {
           return;
         }
 
-        setShadowPhase('idle');
+        setShadowPhaseSync('idle');
 
         const parts =
           sentencesRef.current.length > 0
@@ -1145,11 +1145,28 @@ export default function ReadingScreen() {
         }
 
         const idx = Math.min(Math.max(0, sentenceIndexRef.current), parts.length - 1);
+        const sentence = parts[idx] ?? '';
+        const sentenceId = sentenceToMobileId(
+          sentence,
+          mapTtsVoiceToApi(ttsVoiceTypeRef.current)
+        );
+        const cachedPath = await getCachedSentenceAudio(sentenceId);
+
+        if (!cachedPath) {
+          setStatus('idle');
+          setStatusDetail(
+            (await isSentenceGenerated(sentenceId))
+              ? 'Shadow done. Tap AI to reload this sentence.'
+              : 'Shadow done. Tap AI first to hear this sentence.'
+          );
+          return;
+        }
+
         safeSetPlaybackRate(player, aiSpeedRef.current);
-        await playSentence(idx, 'hear', parts);
+        await playSentence(idx, 'replay', parts);
       } catch (err) {
         if (playGen === shadowPlayGenRef.current) {
-          setShadowPhase('idle');
+          setShadowPhaseSync('idle');
           setStatus('error');
           setStatusDetail(
             err instanceof Error ? err.message : 'Shadow playback failed'
@@ -1160,14 +1177,21 @@ export default function ReadingScreen() {
       return;
     }
 
-    if (shadowPhase === 'playing') {
+    if (phase === 'playing') {
       cancelPlayback();
       return;
     }
 
+    shadowRecordGenRef.current += 1;
+    const recordGen = shadowRecordGenRef.current;
+    setShadowPhaseSync('starting');
+
     setShadowHint('Allow microphone access when prompted.');
     const mic = await ensureShadowMicPermission();
     if (!mic.granted) {
+      if (recordGen === shadowRecordGenRef.current) {
+        setShadowPhaseSync('idle');
+      }
       setShadowHint(
         mic.blocked
           ? 'Microphone blocked. Open Settings → Zaban TTS → Permissions → Microphone.'
@@ -1177,12 +1201,26 @@ export default function ReadingScreen() {
     }
     setShadowHint(null);
 
+    if (recordGen !== shadowRecordGenRef.current) {
+      return;
+    }
+
     playbackGenRef.current += 1;
-    guard.cancel();
     player.cancel();
+    if (guard.getActive() !== 'idle') {
+      releaseShadowGuard();
+      guard.cancel();
+    }
+
+    await disposeShadowRecordingSession();
+    if (recordGen !== shadowRecordGenRef.current) {
+      setShadowPhaseSync('idle');
+      return;
+    }
 
     const token = guard.tryAcquire('recording');
     if (token == null) {
+      setShadowPhaseSync('idle');
       setStatus('error');
       setStatusDetail('Busy — another audio operation is active.');
       return;
@@ -1190,26 +1228,29 @@ export default function ReadingScreen() {
     shadowGuardTokenRef.current = token;
 
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        staysActiveInBackground: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
+      if (recordGen !== shadowRecordGenRef.current) {
+        releaseShadowGuard();
+        setShadowPhaseSync('idle');
+        return;
+      }
 
-      const recording = new Audio.Recording();
-      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      await recording.startAsync();
-      shadowRecordingRef.current = recording;
-      setShadowPhase('recording');
+      await startShadowRecording();
+
+      if (recordGen !== shadowRecordGenRef.current) {
+        await disposeShadowRecordingSession();
+        releaseShadowGuard();
+        setShadowPhaseSync('idle');
+        return;
+      }
+
+      setShadowPhaseSync('recording');
       setShadowHint(null);
       setStatus('idle');
       setStatusDetail('Shadow recording… tap again to stop and play');
     } catch (err) {
+      await disposeShadowRecordingSession();
       releaseShadowGuard();
-      shadowRecordingRef.current = null;
-      setShadowPhase('idle');
+      setShadowPhaseSync('idle');
       setStatus('error');
       setStatusDetail(err instanceof Error ? err.message : 'Shadow recording failed');
       console.error('[SHADOW] start recording error:', err);
@@ -1220,8 +1261,7 @@ export default function ReadingScreen() {
     player,
     playSentence,
     releaseShadowGuard,
-    shadowPhase,
-    stopShadowRecording,
+    setShadowPhaseSync,
     syncSentencesFromText,
   ]);
 
@@ -1229,12 +1269,13 @@ export default function ReadingScreen() {
     return () => {
       playbackGenRef.current += 1;
       shadowPlayGenRef.current += 1;
+      shadowRecordGenRef.current += 1;
       releaseShadowGuard();
-      void stopShadowRecording();
+      void disposeShadowRecordingSession();
       guard.cancel();
       player.cancel();
     };
-  }, [guard, player, releaseShadowGuard, stopShadowRecording]);
+  }, [guard, player, releaseShadowGuard]);
 
   useEffect(() => {
     logEndurance('session_start', { platform: Platform.OS });
@@ -1275,9 +1316,10 @@ export default function ReadingScreen() {
   const currentSentence =
     total > 0 ? sentences[sentenceIndex] ?? '' : 'Paste or write text to begin reading.';
   const aiBusy = status === 'fetching' || status === 'playing';
+  const shadowStarting = shadowPhase === 'starting';
   const shadowRecording = shadowPhase === 'recording';
   const shadowPlaying = shadowPhase === 'playing';
-  const busy = aiBusy || shadowPlaying;
+  const busy = aiBusy || shadowPlaying || shadowStarting;
   const displayStatusDetail = shadowRecording
     ? 'Shadow recording… tap again to stop and play'
     : shadowHint ?? statusDetail;
@@ -1440,8 +1482,8 @@ export default function ReadingScreen() {
                               style={[
                                 styles.readUnitBtn,
                                 {
-                                  borderColor: selected ? colors.accent : colors.border,
-                                  backgroundColor: selected ? colors.accent : 'transparent',
+                                  borderColor: selected ? colors.selection.border : colors.border,
+                                  backgroundColor: selected ? colors.selection.bg : 'transparent',
                                 },
                               ]}
                               onPress={() => handleReadUnitChange(unit.value)}
@@ -1449,7 +1491,7 @@ export default function ReadingScreen() {
                               <Text
                                 style={[
                                   styles.readUnitBtnText,
-                                  { color: selected ? '#FFFFFF' : colors.text },
+                                  { color: selected ? colors.selection.text : colors.text },
                                 ]}
                                 numberOfLines={2}
                               >
@@ -1474,19 +1516,20 @@ export default function ReadingScreen() {
                           style={[
                             styles.voiceTypeBtn,
                             {
-                              borderColor: selected ? colors.accent : colors.border,
-                              backgroundColor: selected ? colors.accent : 'transparent',
+                              borderColor: selected ? colors.selection.border : colors.border,
+                              backgroundColor: selected ? colors.selection.bg : 'transparent',
                             },
                           ]}
                           onPress={() => {
                             setTtsVoiceType(voice);
                             ttsVoiceTypeRef.current = voice;
+                            syncSentencesFromText(textRef.current);
                           }}
                         >
                           <Text
                             style={[
                               styles.voiceTypeBtnText,
-                              { color: selected ? '#FFFFFF' : colors.text },
+                              { color: selected ? colors.selection.text : colors.text },
                             ]}
                           >
                             {voice === 'male' ? 'Male' : 'Female'}
@@ -1499,6 +1542,10 @@ export default function ReadingScreen() {
                   <Text style={[styles.settingsSectionLabel, { color: colors.textDim }]}>
                     AI SPEED: {aiSpeed.toFixed(1)}x
                   </Text>
+                  <View style={styles.sliderEndpointRow}>
+                    <Text style={[styles.sliderEndpointLabel, { color: colors.textMuted }]}>Slow</Text>
+                    <Text style={[styles.sliderEndpointLabel, { color: colors.textMuted }]}>Fast</Text>
+                  </View>
                   <SettingSlider
                     value={aiSpeed}
                     min={0.5}
@@ -1507,19 +1554,20 @@ export default function ReadingScreen() {
                     onChange={handleAiSpeedChange}
                     onDragStart={handleSliderDragStart}
                     onDragEnd={handleSliderDragEnd}
-                    accent={colors.accent}
-                    border={colors.border}
-                    track={colors.accentSoft}
+                    accent={colors.slider.fill}
+                    border={colors.slider.border}
+                    track={colors.slider.track}
+                    bilateral
                   />
 
                   <View style={styles.textSizeHeader}>
                     <Text style={[styles.settingsSectionLabel, { color: colors.textDim, marginBottom: 0 }]}>
                       Text size: {textSize}
                     </Text>
-                    <View style={styles.textSizeLabels}>
-                      <Text style={{ color: colors.textMuted, fontSize: 14 }}>Aa</Text>
-                      <Text style={{ color: colors.textMuted, fontSize: 22 }}>Aa</Text>
-                    </View>
+                  </View>
+                  <View style={styles.sliderEndpointRow}>
+                    <Text style={[styles.sliderEndpointLabel, { color: colors.textMuted }]}>Aa</Text>
+                    <Text style={[styles.sliderEndpointLabel, { color: colors.textMuted, fontSize: 15 }]}>Aa</Text>
                   </View>
                   <SettingSlider
                     value={textSize}
@@ -1529,9 +1577,10 @@ export default function ReadingScreen() {
                     onChange={setTextSize}
                     onDragStart={handleSliderDragStart}
                     onDragEnd={handleSliderDragEnd}
-                    accent={colors.accent}
-                    border={colors.border}
-                    track={colors.accentSoft}
+                    accent={colors.slider.fill}
+                    border={colors.slider.border}
+                    track={colors.slider.track}
+                    bilateral
                   />
                 </ScrollView>
               </Pressable>
@@ -1600,15 +1649,6 @@ export default function ReadingScreen() {
             waveformActive={waveformActive}
           />
 
-          {total > 0 ? (
-            <Text
-              style={[styles.sentenceProgress, { color: colors.textDim }]}
-              accessibilityLabel="Sentence progress"
-            >
-              {sentenceIndex + 1} / {total}
-            </Text>
-          ) : null}
-
           {showStatusHint ? (
             <Text style={[styles.statusHint, { color: colors.textDim }]} numberOfLines={1}>
               {displayStatusDetail}
@@ -1621,10 +1661,14 @@ export default function ReadingScreen() {
               micBreath={micBreath}
               hearPulse={hearPulse}
               shadowRecording={shadowRecording}
+              shadowStarting={shadowStarting}
               shadowPlaying={shadowPlaying}
               busy={busy}
               hearDisabled={
-                status === 'fetching' || shadowRecording || shadowPlaying
+                status === 'fetching' ||
+                shadowStarting ||
+                shadowRecording ||
+                shadowPlaying
               }
               hearLoading={aiBusy}
               onMic={() => {
@@ -1755,6 +1799,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 6,
   },
+  sliderEndpointRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  sliderEndpointLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
   textSizeLabels: {
     flexDirection: 'row',
     gap: 12,
@@ -1820,14 +1873,6 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     backgroundColor: 'transparent',
     ...Platform.select({ android: { includeFontPadding: true } }),
-  },
-  sentenceProgress: {
-    textAlign: 'center',
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 4,
-    marginBottom: 2,
-    marginHorizontal: space.heroPadH,
   },
   statusHint: {
     textAlign: 'center',

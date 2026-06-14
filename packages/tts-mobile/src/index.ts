@@ -15,6 +15,7 @@ export {
   getSentenceCacheStats,
   isSentenceGenerated,
   clearSentenceCacheIfIdleExpired,
+  pruneSentenceCacheToKeepIds,
   touchLastActivityAt,
   getRetentionWindowSize,
   CACHE_IDLE_TTL_MS,

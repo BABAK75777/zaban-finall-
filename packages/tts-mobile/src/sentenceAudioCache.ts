@@ -264,3 +264,38 @@ export async function clearSentenceCache(): Promise<void> {
   await FileSystem.deleteAsync(AUDIO_DIR, { idempotent: true }).catch(() => {});
   await ensureAudioDir();
 }
+
+/**
+ * Drop cached audio + generation locks for sentenceIds not in the active reading set.
+ * Ensures new/edited text gets a fresh TTS request instead of replaying stale audio.
+ */
+export async function pruneSentenceCacheToKeepIds(keepSentenceIds: string[]): Promise<number> {
+  const keep = new Set(keepSentenceIds);
+  const index = await loadIndex();
+  let pruned = 0;
+
+  for (const [id, entry] of Object.entries(index.entries)) {
+    if (keep.has(id)) continue;
+    await FileSystem.deleteAsync(entry.audioPath, { idempotent: true }).catch(() => {});
+    delete index.entries[id];
+    if (Object.prototype.hasOwnProperty.call(generatedIdsOf(index), id)) {
+      delete generatedIdsOf(index)[id];
+    }
+    pruned += 1;
+    console.log(`[SentenceCache] pruned stale sentenceId=${id}`);
+  }
+
+  if (index.currentSentenceId && !keep.has(index.currentSentenceId)) {
+    index.currentSentenceId = null;
+  }
+  if (index.previousSentenceId && !keep.has(index.previousSentenceId)) {
+    index.previousSentenceId = null;
+  }
+
+  if (pruned > 0) {
+    await saveIndex(index);
+    console.log(`[SentenceCache] prune complete removed=${pruned} kept=${keep.size}`);
+  }
+
+  return pruned;
+}

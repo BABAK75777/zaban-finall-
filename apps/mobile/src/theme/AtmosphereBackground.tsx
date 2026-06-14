@@ -23,7 +23,7 @@ function skyPalette(theme: ThemePalette): SkyPalette {
       return {
         skyTop: theme.bg,
         skyBottom: theme.surface,
-        star: 'rgba(237, 231, 255, 0.35)',
+        star: 'rgba(255, 255, 255, 0.3)',
       };
     case 'light':
       return {

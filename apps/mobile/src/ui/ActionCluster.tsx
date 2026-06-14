@@ -9,9 +9,9 @@ import {
   View,
 } from 'react-native';
 import { glassHighlight, glassStyle } from '../theme/glass';
-import { UI_FONT_SEMIBOLD } from '../theme/themes';
+import { SHADOW_LABEL_FONT, UI_FONT_SEMIBOLD } from '../theme/themes';
+import { useFontsReady } from '../theme/FontReadyContext';
 import type { ThemePalette } from '../theme/themeTypes';
-import { MicLucideIcon } from './icons/LucideIcons';
 import { HearAiIcon } from './icons/HearAiIcon';
 import { navPillStyle } from './NavPills';
 import { controlSizes, space } from './spacing';
@@ -21,6 +21,7 @@ interface ActionClusterProps {
   micBreath: Animated.Value;
   hearPulse: Animated.Value;
   shadowRecording: boolean;
+  shadowStarting?: boolean;
   shadowPlaying: boolean;
   busy: boolean;
   hearDisabled: boolean;
@@ -36,6 +37,7 @@ export function ActionCluster({
   micBreath,
   hearPulse,
   shadowRecording,
+  shadowStarting = false,
   shadowPlaying,
   busy,
   hearDisabled,
@@ -44,19 +46,22 @@ export function ActionCluster({
   hearLoading,
 }: ActionClusterProps) {
   const b = theme.buttons;
+  const fontsReady = useFontsReady();
   const navStyle = navPillStyle(theme);
   const iconColor = b.replayText;
+
+  const micDisabled = shadowStarting;
 
   const micPurpleBg = shadowRecording
     ? theme.dangerSoft
     : shadowPlaying
-      ? theme.accentSoft
+      ? theme.selection.bg
       : b.micBg;
 
   const micPurpleBorder = shadowRecording
     ? 'rgba(248, 113, 113, 0.5)'
     : shadowPlaying
-      ? theme.accentGlow
+      ? theme.selection.border
       : b.micBorder;
 
   return (
@@ -89,8 +94,9 @@ export function ActionCluster({
       <Animated.View style={{ transform: [{ scale: micBreath }], width: '100%' }}>
         <Pressable
           onPress={onMic}
+          disabled={micDisabled}
           accessibilityRole="button"
-          accessibilityLabel="Shadow microphone"
+          accessibilityLabel="Shadow"
           style={({ pressed }) => [
             styles.pill,
             {
@@ -101,16 +107,27 @@ export function ActionCluster({
               ...Platform.select({
                 ios: {
                   shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.42,
-                  shadowRadius: 10,
+                  shadowOpacity: shadowRecording ? 0.42 : 0.55,
+                  shadowRadius: shadowRecording ? 10 : 14,
                 },
-                android: { elevation: 8 },
+                android: { elevation: shadowRecording ? 8 : 10 },
               }),
             },
-            pressed && { opacity: 0.93 },
+            micDisabled && styles.disabled,
+            pressed && !micDisabled && { opacity: 0.93 },
           ]}
         >
-          <MicLucideIcon color={b.micText} size={PILL_ICON} />
+          <Text
+            style={[
+              styles.shadowLabel,
+              {
+                color: theme.bg,
+                fontFamily: fontsReady ? SHADOW_LABEL_FONT : undefined,
+              },
+            ]}
+          >
+            Shadow
+          </Text>
         </Pressable>
       </Animated.View>
     </View>
@@ -142,6 +159,17 @@ const styles = StyleSheet.create({
   pillLabel: {
     fontSize: 14,
     letterSpacing: 0.16,
+  },
+  shadowLabel: {
+    fontSize: 22,
+    lineHeight: 28,
+    letterSpacing: 0.2,
+    textAlign: 'center',
+    includeFontPadding: false,
+    ...Platform.select({
+      android: { textAlignVertical: 'center' },
+      default: {},
+    }),
   },
   disabled: { opacity: 0.62 },
 });

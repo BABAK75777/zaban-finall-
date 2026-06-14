@@ -41,8 +41,8 @@ export function ThemeSwitcher({ themeId, theme, onSelect, disabled }: ThemeSwitc
             style={({ pressed }) => [
               styles.segment,
               active && {
-                backgroundColor: theme.accentSoft,
-                borderColor: theme.accent,
+                backgroundColor: theme.selection.bg,
+                borderColor: theme.selection.border,
               },
               !active && { borderColor: 'transparent' },
               pressed && !disabled && { opacity: 0.85 },
@@ -55,7 +55,10 @@ export function ThemeSwitcher({ themeId, theme, onSelect, disabled }: ThemeSwitc
             <Text
               style={[
                 styles.label,
-                { color: active ? theme.accent : theme.textDim, fontFamily: theme.fontFamilyUI },
+                {
+                  color: active ? theme.selection.text : theme.textDim,
+                  fontFamily: theme.fontFamilyUI,
+                },
               ]}
             >
               {SHORT_LABELS[id]}

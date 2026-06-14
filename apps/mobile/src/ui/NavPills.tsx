@@ -18,7 +18,7 @@ export function navPillStyle(theme: ThemePalette) {
   return {
     backgroundColor: b.navBg,
     borderColor: b.navBorder,
-    borderWidth: 1,
+    borderWidth: 2,
     ...Platform.select({
       ios: {
         shadowColor: theme.id === 'dark' ? theme.accentGlow : theme.shadow,

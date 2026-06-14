@@ -114,12 +114,14 @@ interface SliderRowProps {
 
 function SliderRow({ title, leftLabel, rightLabel, value, onChange, theme, onDragStart, onDragEnd }: SliderRowProps) {
   const colors = theme;
+  const s = colors.slider;
+  const labelColor = colors.textMuted;
   return (
     <View style={styles.sliderSection}>
       <Text style={[styles.sliderSectionTitle, { color: colors.textDim }]}>{title}</Text>
       <View style={styles.sliderLabels}>
-        <Text style={[styles.sliderEndpoint, { color: colors.textMuted }]}>{leftLabel}</Text>
-        <Text style={[styles.sliderEndpoint, { color: colors.textMuted }]}>{rightLabel}</Text>
+        <Text style={[styles.sliderEndpoint, { color: labelColor }]}>{leftLabel}</Text>
+        <Text style={[styles.sliderEndpoint, { color: labelColor }]}>{rightLabel}</Text>
       </View>
       <SettingSlider
         value={value}
@@ -129,10 +131,11 @@ function SliderRow({ title, leftLabel, rightLabel, value, onChange, theme, onDra
         onChange={onChange}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
-        accent={colors.accent}
-        border={colors.border}
-        track={colors.accentSoft}
+        accent={s.fill}
+        border={s.border}
+        track={s.track}
         compact
+        bilateral
       />
     </View>
   );
@@ -276,9 +279,9 @@ export function AiPromptModal({
         styles.generateBtn,
         compact && styles.generateBtnCompact,
         {
-          backgroundColor: colors.accent,
-          borderColor: colors.accentGlow,
-          shadowColor: colors.accent,
+          backgroundColor: colors.selection.bg,
+          borderColor: colors.selection.border,
+          shadowColor: colors.buttons.micGlow,
           opacity: generating ? 0.72 : 1,
         },
         pressed && !generating && { opacity: 0.92, transform: [{ scale: 0.99 }] },
@@ -289,13 +292,27 @@ export function AiPromptModal({
     >
       {generating ? (
         <View style={styles.generateLoadingRow}>
-          <ActivityIndicator color="#FFFFFF" size="small" />
-          <Text style={[styles.generateLabel, compact && styles.generateLabelCompact]}>
+          <ActivityIndicator color={colors.selection.text} size="small" />
+          <Text
+            style={[
+              styles.generateLabel,
+              compact && styles.generateLabelCompact,
+              { color: colors.selection.text },
+            ]}
+          >
             Generating…
           </Text>
         </View>
       ) : (
-        <Text style={[styles.generateLabel, compact && styles.generateLabelCompact]}>Generate</Text>
+        <Text
+          style={[
+            styles.generateLabel,
+            compact && styles.generateLabelCompact,
+            { color: colors.selection.text },
+          ]}
+        >
+          Generate
+        </Text>
       )}
     </Pressable>
   );
@@ -443,8 +460,8 @@ export function AiPromptModal({
                           styles.featureChip,
                           glassStyle(theme),
                           {
-                            borderColor: on ? colors.accent : colors.border,
-                            backgroundColor: on ? colors.accentSoft : theme.glass.bg,
+                            borderColor: on ? colors.selection.border : colors.border,
+                            backgroundColor: on ? colors.selection.bg : theme.glass.bg,
                           },
                           pressed && { opacity: 0.88 },
                         ]}
@@ -452,7 +469,7 @@ export function AiPromptModal({
                         <Text
                           style={[
                             styles.featureChipText,
-                            { color: on ? colors.accent : colors.textMuted },
+                            { color: on ? colors.selection.text : colors.textMuted },
                           ]}
                           numberOfLines={2}
                           adjustsFontSizeToFit
@@ -681,17 +698,17 @@ const styles = StyleSheet.create({
   },
   generateBtn: {
     marginTop: space.md,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     paddingVertical: 12,
     alignItems: 'center',
     ...Platform.select({
       ios: {
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.28,
-        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.22,
+        shadowRadius: 6,
       },
-      android: { elevation: 4 },
+      android: { elevation: 3 },
     }),
   },
   generateBtnCompact: {
@@ -704,10 +721,10 @@ const styles = StyleSheet.create({
     ...Platform.select({
       ios: {
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.18,
-        shadowRadius: 3,
+        shadowOpacity: 0.06,
+        shadowRadius: 2,
       },
-      android: { elevation: 2 },
+      android: { elevation: 1 },
     }),
   },
   keyboardFooter: {
@@ -729,7 +746,6 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   generateLabel: {
-    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.8,

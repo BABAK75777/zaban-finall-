@@ -16,7 +16,7 @@ export function DecorativeWaveform({ theme, active = false }: DecorativeWaveform
 
   useEffect(() => {
     const animations = bars.map((bar, i) => {
-      const peak = active ? 0.58 + (i % 6) * 0.07 : 0.3 + (i % 5) * 0.04;
+      const peak = active ? 0.72 + (i % 6) * 0.08 : 0.34 + (i % 5) * 0.05;
       return Animated.loop(
         Animated.sequence([
           Animated.timing(bar, {
@@ -45,7 +45,7 @@ export function DecorativeWaveform({ theme, active = false }: DecorativeWaveform
             styles.bar,
             {
               backgroundColor: active ? theme.waveform.active : theme.waveform.inactive,
-              opacity: active ? 0.82 : 0.38,
+              opacity: active ? 0.9 : 0.42,
               transform: [{ scaleY: bar }],
             },
           ]}
@@ -60,16 +60,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 22,
-    gap: 2,
-    marginTop: 10,
-    marginBottom: 2,
-    paddingHorizontal: 8,
-    opacity: 0.88,
+    height: 36,
+    gap: 3,
+    marginTop: 14,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    opacity: 0.92,
   },
   bar: {
-    width: 2.5,
-    height: 20,
-    borderRadius: 1.5,
+    width: 3.5,
+    height: 34,
+    borderRadius: 2,
   },
 });

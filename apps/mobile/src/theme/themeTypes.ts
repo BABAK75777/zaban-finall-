@@ -44,6 +44,20 @@ export interface ButtonTokens {
   hearGlow: string;
 }
 
+export interface SliderTokens {
+  track: string;
+  fill: string;
+  thumb: string;
+  border: string;
+}
+
+/** Purple highlight for the small active/selected indicator only. */
+export interface SelectionTokens {
+  bg: string;
+  border: string;
+  text: string;
+}
+
 export interface ThemePalette {
   id: ThemeId;
   label: string;
@@ -85,6 +99,8 @@ export interface ThemePalette {
   glass: GlassTokens;
   waveform: WaveformTokens;
   buttons: ButtonTokens;
+  slider: SliderTokens;
+  selection: SelectionTokens;
 
   fontFamilySentence: string;
   fontFamilyUI: string;

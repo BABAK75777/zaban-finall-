@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.29.2",
+    "@expo-google-fonts/great-vibes": "0.2.3",
     "@expo-google-fonts/inter": "^0.2.3",
     "@expo-google-fonts/playfair-display": "^0.2.3",
     "@expo/metro-runtime": "~3.2.3",

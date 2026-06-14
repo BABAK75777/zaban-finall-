@@ -1,20 +1,26 @@
+import '../src/polyfills/urlPolyfill';
 import { useFonts, PlayfairDisplay_600SemiBold } from '@expo-google-fonts/playfair-display';
 import { Inter_400Regular, Inter_600SemiBold } from '@expo-google-fonts/inter';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { FontReadyContext } from '../src/theme/FontReadyContext';
+
+const greatVibesFont = require('../assets/fonts/GreatVibes-Regular.ttf');
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
+  const [bootReady, setBootReady] = useState(false);
   const [fontsLoaded, fontError] = useFonts({
     PlayfairDisplay_600SemiBold,
+    GreatVibes_400Regular: greatVibesFont,
     Inter_400Regular,
     Inter_600SemiBold,
   });
 
-  const ready = fontsLoaded || !!fontError;
+  const ready = fontsLoaded || !!fontError || bootReady;
 
   useEffect(() => {
     if (!ready) return;
@@ -24,8 +30,9 @@ export default function RootLayout() {
   // Never block startup indefinitely if font loading stalls.
   useEffect(() => {
     const timeout = setTimeout(() => {
+      setBootReady(true);
       SplashScreen.hideAsync().catch(() => {});
-    }, 4000);
+    }, 3000);
     return () => clearTimeout(timeout);
   }, []);
 
@@ -34,7 +41,7 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <FontReadyContext.Provider value={fontsLoaded}>
       <StatusBar style="auto" />
       <Stack
         screenOptions={{
@@ -52,6 +59,6 @@ export default function RootLayout() {
         <Stack.Screen name="library" options={{ title: 'Library' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
       </Stack>
-    </>
+    </FontReadyContext.Provider>
   );
 }

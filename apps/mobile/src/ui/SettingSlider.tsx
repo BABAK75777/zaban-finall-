@@ -28,6 +28,8 @@ export interface SettingSliderProps {
   track: string;
   /** Tighter vertical spacing for stacked slider rows (e.g. AI modal). */
   compact?: boolean;
+  /** Two-sided sliders (left/right labels) — taller, brighter fill rail. */
+  bilateral?: boolean;
 }
 
 export function SettingSlider({
@@ -42,6 +44,7 @@ export function SettingSlider({
   border,
   track,
   compact = false,
+  bilateral = false,
 }: SettingSliderProps) {
   const [trackWidth, setTrackWidth] = useState(0);
   const [dragValue, setDragValue] = useState<number | null>(null);
@@ -134,6 +137,8 @@ export function SettingSlider({
     [updateFromPageX, beginDrag, endDrag, syncTrackMetrics]
   );
 
+  const railHeight = TRACK_HEIGHT;
+
   return (
     <View
       style={[styles.wrap, compact && styles.wrapCompact]}
@@ -152,13 +157,25 @@ export function SettingSlider({
         }}
         {...panResponder.panHandlers}
       >
-        <View style={[styles.trackRail, { backgroundColor: track, borderColor: border }]}>
+        <View
+          style={[
+            styles.trackRail,
+            {
+              height: railHeight,
+              borderRadius: railHeight / 2,
+              backgroundColor: track,
+              borderColor: border,
+            },
+          ]}
+        >
           <View
             style={[
               styles.fill,
               {
                 width: `${ratio * 100}%`,
                 backgroundColor: accent,
+                borderRadius: railHeight / 2,
+                opacity: bilateral ? 1 : 0.9,
               },
             ]}
           />
@@ -190,16 +207,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   trackRail: {
-    height: TRACK_HEIGHT,
-    borderRadius: TRACK_HEIGHT / 2,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
     marginHorizontal: THUMB_SIZE / 2,
   },
   fill: {
     height: '100%',
-    borderRadius: TRACK_HEIGHT / 2,
-    opacity: 0.9,
   },
   thumb: {
     position: 'absolute',

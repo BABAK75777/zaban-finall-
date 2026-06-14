@@ -1,12 +1,22 @@
 /// <reference types="vitest" />
+import path from 'path';
 import { defineConfig } from 'vitest/config';
-import react from '@vitejs/plugin-react';
 
 export default defineConfig({
-  plugins: [react()],
+  resolve: {
+    alias: {
+      'react-native': path.resolve(__dirname, 'tests/mocks/react-native.ts'),
+      'expo-av': path.resolve(__dirname, 'tests/mocks/expo-av.ts'),
+      'expo-file-system': path.resolve(__dirname, 'tests/mocks/expo-file-system.ts'),
+      '@react-native-async-storage/async-storage': path.resolve(
+        __dirname,
+        'tests/mocks/async-storage.ts'
+      ),
+    },
+  },
   test: {
     globals: true,
-    environment: 'jsdom',
+    environment: 'node',
     setupFiles: ['./tests/setup.ts'],
   },
 });

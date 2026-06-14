@@ -5,6 +5,12 @@
 
 import { vi } from 'vitest';
 
+vi.mock('react-native', () => ({
+  Platform: {
+    select: (options: Record<string, string>) => options.default,
+  },
+}));
+
 // Mock window.EventSource if not available in jsdom
 if (typeof window !== 'undefined' && !window.EventSource) {
   (window as any).EventSource = class MockEventSource {
