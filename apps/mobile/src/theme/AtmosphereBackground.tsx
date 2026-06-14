@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import { Dimensions, StyleSheet, View } from 'react-native';
-import { DARK_TOKENS as D } from './darkTokens';
-import type { ThemeId, ThemePalette } from './themeTypes';
+import type { ThemePalette } from './themeTypes';
 
 const { width: W, height: H } = Dimensions.get('window');
 
@@ -18,23 +17,23 @@ interface SkyPalette {
   star?: string;
 }
 
-function skyPalette(id: ThemeId): SkyPalette {
-  switch (id) {
+function skyPalette(theme: ThemePalette): SkyPalette {
+  switch (theme.id) {
     case 'dark':
       return {
-        skyTop: D.backgroundPrimary,
-        skyBottom: D.backgroundSecondary,
-        star: 'rgba(200, 195, 220, 0.4)',
+        skyTop: theme.bg,
+        skyBottom: theme.surface,
+        star: 'rgba(237, 231, 255, 0.35)',
       };
     case 'light':
       return {
-        skyTop: '#FFFFFF',
-        skyBottom: '#F8F9FC',
+        skyTop: theme.bg,
+        skyBottom: theme.surface,
       };
     case 'cream':
       return {
-        skyTop: '#FFFCF6',
-        skyBottom: '#FAF6EE',
+        skyTop: theme.bg,
+        skyBottom: theme.surface,
       };
   }
 }
@@ -43,10 +42,10 @@ interface AtmosphereBackgroundProps {
   theme: ThemePalette;
 }
 
-/** Deep cinematic sky — no blobs or ovals behind the sentence. */
+/** Soft ambient background per theme — no blobs behind the sentence. */
 export function AtmosphereBackground({ theme }: AtmosphereBackgroundProps) {
   const { id } = theme;
-  const palette = useMemo(() => skyPalette(id), [id]);
+  const palette = useMemo(() => skyPalette(theme), [theme]);
 
   const stars = useMemo(
     () =>
@@ -79,7 +78,7 @@ export function AtmosphereBackground({ theme }: AtmosphereBackgroundProps) {
       <View
         style={[
           styles.bottomVignette,
-          { backgroundColor: palette.skyBottom, opacity: id === 'dark' ? 0.5 : 0.35 },
+          { backgroundColor: palette.skyBottom, opacity: id === 'dark' ? 0.45 : 0.3 },
         ]}
       />
     </View>
@@ -87,7 +86,6 @@ export function AtmosphereBackground({ theme }: AtmosphereBackgroundProps) {
 }
 
 const styles = StyleSheet.create({
-  /** Single full-bleed sky — no mid-screen band (removes center horizon line). */
   skyFill: {
     position: 'absolute',
     top: 0,

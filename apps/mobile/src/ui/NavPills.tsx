@@ -1,6 +1,7 @@
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { glassHighlight, glassStyle } from '../theme/glass';
+import { UI_FONT_SEMIBOLD } from '../theme/themes';
 import type { ThemePalette } from '../theme/themeTypes';
 import { controlSizes, space } from './spacing';
 
@@ -13,19 +14,19 @@ interface NavPillsProps {
 }
 
 export function navPillStyle(theme: ThemePalette) {
-  const isDark = theme.id === 'dark';
+  const b = theme.buttons;
   return {
-    backgroundColor: isDark ? 'rgba(22, 32, 64, 0.82)' : theme.buttons.navBg,
-    borderColor: isDark ? 'rgba(192, 132, 252, 0.22)' : theme.buttons.navBorder,
+    backgroundColor: b.navBg,
+    borderColor: b.navBorder,
     borderWidth: 1,
     ...Platform.select({
       ios: {
-        shadowColor: isDark ? 'rgba(168, 85, 247, 0.35)' : theme.shadow,
+        shadowColor: theme.id === 'dark' ? theme.accentGlow : theme.shadow,
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: isDark ? 0.1 : 0.07,
+        shadowOpacity: theme.id === 'dark' ? 0.1 : 0.07,
         shadowRadius: 8,
       },
-      android: { elevation: isDark ? 3 : 2 },
+      android: { elevation: theme.id === 'dark' ? 3 : 2 },
     }),
   };
 }
@@ -49,7 +50,7 @@ export function NavPills({ theme, backDisabled, nextDisabled, onBack, onNext }: 
         accessibilityLabel="BACK"
       >
         <View style={glassHighlight(theme)} pointerEvents="none" />
-        <Text style={[styles.label, { color: labelColor }]}>← Back</Text>
+        <Text style={[styles.label, { color: labelColor, fontFamily: UI_FONT_SEMIBOLD }]}>← Back</Text>
       </Pressable>
       <Pressable
         style={({ pressed }) => [
@@ -64,7 +65,7 @@ export function NavPills({ theme, backDisabled, nextDisabled, onBack, onNext }: 
         accessibilityLabel="NEXT"
       >
         <View style={glassHighlight(theme)} pointerEvents="none" />
-        <Text style={[styles.label, { color: labelColor }]}>Next →</Text>
+        <Text style={[styles.label, { color: labelColor, fontFamily: UI_FONT_SEMIBOLD }]}>Next →</Text>
       </Pressable>
     </View>
   );
@@ -87,7 +88,6 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    fontWeight: '600',
     letterSpacing: 0.16,
   },
   disabled: { opacity: 0.62 },

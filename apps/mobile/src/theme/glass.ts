@@ -24,17 +24,16 @@ export function glassStyle(theme: ThemePalette, elevated = false): ViewStyle {
 /** Soft glass capsule for Replay / AI side controls. */
 export function sideGlassStyle(theme: ThemePalette, busy: boolean): ViewStyle {
   const b = theme.buttons;
-  const isDark = theme.id === 'dark';
   return {
-    backgroundColor: isDark ? 'rgba(14, 20, 48, 0.82)' : b.hearBg,
-    borderColor: isDark ? 'rgba(168, 85, 247, 0.2)' : b.hearBorder,
+    backgroundColor: b.hearBg,
+    borderColor: b.hearBorder,
     borderWidth: 1,
     opacity: busy ? 0.8 : 0.96,
     ...Platform.select({
       ios: {
         shadowColor: theme.accent,
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: isDark ? 0.14 : 0.1,
+        shadowOpacity: theme.id === 'dark' ? 0.14 : 0.1,
         shadowRadius: 8,
       },
       android: { elevation: 3 },

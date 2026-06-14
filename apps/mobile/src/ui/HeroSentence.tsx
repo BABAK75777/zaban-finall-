@@ -80,7 +80,6 @@ const styles = StyleSheet.create({
   },
   sentence: {
     textAlign: 'center',
-    fontWeight: '400',
     letterSpacing: 0.15,
   },
 });

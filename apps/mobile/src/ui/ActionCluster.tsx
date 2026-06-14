@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { glassHighlight, glassStyle } from '../theme/glass';
+import { UI_FONT_SEMIBOLD } from '../theme/themes';
 import type { ThemePalette } from '../theme/themeTypes';
 import { MicLucideIcon } from './icons/LucideIcons';
 import { HearAiIcon } from './icons/HearAiIcon';
@@ -81,7 +82,7 @@ export function ActionCluster({
           ) : (
             <HearAiIcon color={iconColor} size={PILL_ICON} />
           )}
-          <Text style={[styles.pillLabel, { color: theme.text }]}>AI</Text>
+          <Text style={[styles.pillLabel, { color: theme.text, fontFamily: UI_FONT_SEMIBOLD }]}>AI</Text>
         </Animated.View>
       </Pressable>
 
@@ -109,7 +110,7 @@ export function ActionCluster({
             pressed && { opacity: 0.93 },
           ]}
         >
-          <MicLucideIcon color="#FAFBFF" size={PILL_ICON} />
+          <MicLucideIcon color={b.micText} size={PILL_ICON} />
         </Pressable>
       </Animated.View>
     </View>
@@ -140,7 +141,6 @@ const styles = StyleSheet.create({
   },
   pillLabel: {
     fontSize: 14,
-    fontWeight: '600',
     letterSpacing: 0.16,
   },
   disabled: { opacity: 0.62 },

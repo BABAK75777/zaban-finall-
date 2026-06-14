@@ -1,18 +1,41 @@
+import { useFonts, PlayfairDisplay_600SemiBold } from '@expo-google-fonts/playfair-display';
+import { Inter_400Regular, Inter_600SemiBold } from '@expo-google-fonts/inter';
 import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
+
+SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    PlayfairDisplay_600SemiBold,
+    Inter_400Regular,
+    Inter_600SemiBold,
+  });
+
+  useEffect(() => {
+    if (fontsLoaded) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded]);
+
+  if (!fontsLoaded) {
+    return null;
+  }
+
   return (
     <>
       <StatusBar style="auto" />
       <Stack
         screenOptions={{
           headerStyle: {
-            backgroundColor: '#f5f5f5',
+            backgroundColor: '#F8F7FC',
           },
-          headerTintColor: '#000',
+          headerTintColor: '#17151F',
           headerTitleStyle: {
-            fontWeight: 'bold',
+            fontFamily: 'Inter_600SemiBold',
+            fontWeight: '600',
           },
         }}
       >
@@ -23,4 +46,3 @@ export default function RootLayout() {
     </>
   );
 }
-

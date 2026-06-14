@@ -51,6 +51,7 @@ export interface ThemePalette {
 
   bg: string;
   surface: string;
+  tertiary: string;
   surfaceElevated: string;
   card: string;
   cardOpacity: number;
