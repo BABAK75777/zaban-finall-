@@ -1,0 +1,21 @@
+# Run:        maestro test .maestro/reading-responsive.yaml
+# Small phone: maestro test .maestro/reading-responsive.yaml --device <small-device-id>
+appId: com.zaban.tts
+---
+- launchApp
+
+# Responsive core: dock + bottom controls must be visible without scrolling
+- assertVisible:
+    id: "reading-controls-dock"
+- assertVisible:
+    id: "reading-menu"
+- assertVisible:
+    id: "reading-hero-sentence"
+- assertVisible:
+    id: "reading-shadow"
+- assertVisible:
+    id: "reading-back"
+- assertVisible:
+    id: "reading-hear-ai"
+- assertVisible:
+    id: "reading-next"

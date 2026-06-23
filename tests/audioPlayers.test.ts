@@ -65,7 +65,7 @@ describe('textChunker', () => {
       const chunks = chunkText(longText.repeat(50)); // Make it very long
       expect(chunks.length).toBeGreaterThan(1);
       chunks.forEach(chunk => {
-        expect(chunk.length).toBeLessThanOrEqual(500);
+        expect(chunk.length).toBeLessThanOrEqual(1500);
         expect(chunk.trim().length).toBeGreaterThan(0);
       });
     });

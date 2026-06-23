@@ -4,19 +4,18 @@ import type { ThemePalette } from './themeTypes';
 /** Frosted-glass panel styling shared across controls. */
 export function glassStyle(theme: ThemePalette, elevated = false): ViewStyle {
   const g = theme.glass;
-  const isWarm = theme.id === 'light' || theme.id === 'cream';
   return {
     backgroundColor: elevated ? theme.surfaceElevated : g.bg,
     borderColor: g.border,
-    borderWidth: isWarm ? 1.25 : 1,
+    borderWidth: 1,
     ...Platform.select({
       ios: {
         shadowColor: g.shadow,
-        shadowOffset: { width: 0, height: elevated ? 8 : 4 },
-        shadowOpacity: elevated ? 0.35 : 0.22,
-        shadowRadius: elevated ? 16 : 10,
+        shadowOffset: { width: 0, height: elevated ? 6 : 2 },
+        shadowOpacity: elevated ? 0.18 : theme.id === 'dark' ? 0.22 : 0.06,
+        shadowRadius: elevated ? 12 : theme.id === 'dark' ? 10 : 6,
       },
-      android: { elevation: elevated ? 8 : 4 },
+      android: { elevation: elevated ? 6 : theme.id === 'dark' ? 4 : 1 },
     }),
   };
 }

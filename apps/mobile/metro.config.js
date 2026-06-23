@@ -6,14 +6,36 @@ const monorepoRoot = path.resolve(projectRoot, '../..');
 
 const config = getDefaultConfig(projectRoot);
 
-// Gradle/Kotlin build outputs must not be watched (breaks Metro on Windows).
-config.resolver.blockList = [
+const workspacePackageRoots = [
+  path.resolve(monorepoRoot, 'packages/tts-mobile'),
+  path.resolve(monorepoRoot, 'packages/tts-core'),
+];
+
+// Build/tooling paths must not be crawled (breaks Metro on Windows when watching the monorepo).
+const metroBuildExclusions = [
+  /[\\/]\.git[\\/]/,
   /[\\/]android[\\/]app[\\/]build[\\/].*/,
   /[\\/]android[\\/]build[\\/].*/,
   /[\\/]android[\\/]\.gradle[\\/].*/,
+  /[\\/]tools[\\/]/,
+  /[\\/]packages[\\/]tts-web[\\/]/,
+  /[\\/]apps[\\/]web[\\/]/,
 ];
 
+config.resolver.blockList = metroBuildExclusions;
+
+// Watch monorepo root for workspace packages; block Gradle/tools paths on Windows.
 config.watchFolders = [monorepoRoot];
+
+if (process.platform === 'win32') {
+  config.watcher = {
+    ...config.watcher,
+    useWatchman: false,
+    healthCheck: {
+      enabled: false,
+    },
+  };
+}
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(monorepoRoot, 'node_modules'),
@@ -31,6 +53,7 @@ const ttsMobileSubpaths = [
 ];
 
 const EXPO_ROUTER_ENTRY = 'expo-router/entry';
+const expoRouterEntryPath = path.resolve(projectRoot, 'node_modules/expo-router/entry.js');
 
 function isExpoRouterEntryRequest(moduleName) {
   const normalized = moduleName.replace(/\\/g, '/');
@@ -39,6 +62,14 @@ function isExpoRouterEntryRequest(moduleName) {
     normalized.endsWith(`/${EXPO_ROUTER_ENTRY}`) ||
     (normalized.includes('.pnpm/') && normalized.includes('expo-router/entry'))
   );
+}
+
+function resolveExpoRouterEntry() {
+  const fs = require('fs');
+  if (fs.existsSync(expoRouterEntryPath)) {
+    return { type: 'sourceFile', filePath: fs.realpathSync(expoRouterEntryPath) };
+  }
+  return null;
 }
 
 function fixExpoRouterEntryBundleUrl(url) {
@@ -63,6 +94,10 @@ if (defaultRewriteRequestUrl) {
 const defaultResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (isExpoRouterEntryRequest(moduleName)) {
+    const resolved = resolveExpoRouterEntry();
+    if (resolved) {
+      return resolved;
+    }
     if (defaultResolveRequest) {
       return defaultResolveRequest(context, EXPO_ROUTER_ENTRY, platform);
     }

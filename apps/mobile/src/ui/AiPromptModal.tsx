@@ -18,6 +18,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { glassStyle } from '../theme/glass';
 import type { ThemeId, ThemePalette } from '../theme/themeTypes';
 import { SettingSlider } from './SettingSlider';
+import { SliderEndpointRow, type SliderEndpointPresetKey } from './SliderEndpointRow';
+import { READING_TEST_IDS } from './testIds';
 import { space } from './spacing';
 import { resolveOutputLanguage } from '../utils/resolveOutputLanguage';
 
@@ -57,6 +59,7 @@ export interface AiGeneratePayload {
   tone: number;
   textLength: number;
   targetLanguage?: string;
+  practiceWords?: string[];
 }
 
 interface AiGenerateResponse {
@@ -99,12 +102,13 @@ interface AiPromptModalProps {
   apiBaseUrl: string;
   theme: ThemePalette;
   themeId: ThemeId;
+  practiceWords?: string[];
+  useDictionaryInAi?: boolean;
 }
 
 interface SliderRowProps {
   title: string;
-  leftLabel: string;
-  rightLabel: string;
+  preset: SliderEndpointPresetKey;
   value: number;
   onChange: (v: number) => void;
   theme: ThemePalette;
@@ -112,17 +116,21 @@ interface SliderRowProps {
   onDragEnd?: () => void;
 }
 
-function SliderRow({ title, leftLabel, rightLabel, value, onChange, theme, onDragStart, onDragEnd }: SliderRowProps) {
+function SliderRow({ title, preset, value, onChange, theme, onDragStart, onDragEnd }: SliderRowProps) {
   const colors = theme;
   const s = colors.slider;
-  const labelColor = colors.textMuted;
   return (
     <View style={styles.sliderSection}>
       <Text style={[styles.sliderSectionTitle, { color: colors.textDim }]}>{title}</Text>
-      <View style={styles.sliderLabels}>
-        <Text style={[styles.sliderEndpoint, { color: labelColor }]}>{leftLabel}</Text>
-        <Text style={[styles.sliderEndpoint, { color: labelColor }]}>{rightLabel}</Text>
-      </View>
+      <SliderEndpointRow
+        value={value}
+        min={0}
+        max={1}
+        mutedColor={colors.textMuted}
+        accentColor={colors.accent}
+        preset={preset}
+        labelMarginBottom={2}
+      />
       <SettingSlider
         value={value}
         min={0}
@@ -151,6 +159,8 @@ export function AiPromptModal({
   apiBaseUrl,
   theme,
   themeId,
+  practiceWords = [],
+  useDictionaryInAi = false,
 }: AiPromptModalProps) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
@@ -248,6 +258,9 @@ export function AiPromptModal({
       ...(outputLanguage.explicit && outputLanguage.code !== 'en'
         ? { targetLanguage: outputLanguage.code }
         : {}),
+      ...(useDictionaryInAi && practiceWords.length > 0
+        ? { practiceWords }
+        : {}),
     };
 
     generateInFlightRef.current = true;
@@ -265,7 +278,7 @@ export function AiPromptModal({
       generateInFlightRef.current = false;
       setGenerating(false);
     }
-  }, [apiBaseUrl, generating, onClose, onGenerated, settings]);
+  }, [apiBaseUrl, generating, onClose, onGenerated, practiceWords, settings, useDictionaryInAi]);
 
   const handleClose = useCallback(() => {
     onClose();
@@ -289,6 +302,7 @@ export function AiPromptModal({
       accessibilityRole="button"
       accessibilityLabel="Generate"
       accessibilityState={{ disabled: generating, busy: generating }}
+      testID={READING_TEST_IDS.aiModalGenerate}
     >
       {generating ? (
         <View style={styles.generateLoadingRow}>
@@ -344,6 +358,7 @@ export function AiPromptModal({
         selectionColor={colors.accentSoft}
         underlineColorAndroid="transparent"
         textAlignVertical="top"
+        testID={READING_TEST_IDS.aiPromptInput}
       />
     </View>
   );
@@ -371,10 +386,16 @@ export function AiPromptModal({
       onRequestClose={handleClose}
       statusBarTranslucent
     >
-      <Pressable style={styles.backdrop} onPress={handleClose} accessibilityLabel="Dismiss">
+      <Pressable
+        style={styles.backdrop}
+        onPress={handleClose}
+        accessibilityLabel="Dismiss"
+        testID={READING_TEST_IDS.aiModalDismiss}
+      >
         <Pressable
           style={[styles.panel, { backgroundColor: colors.bg, borderColor: colors.border }]}
           onPress={(e) => e.stopPropagation()}
+          testID={READING_TEST_IDS.aiModal}
         >
           <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
             <KeyboardAvoidingView
@@ -392,6 +413,7 @@ export function AiPromptModal({
                   hitSlop={10}
                   accessibilityRole="button"
                   accessibilityLabel="Close"
+                  testID={READING_TEST_IDS.aiModalClose}
                   style={({ pressed }) => [
                     styles.closeBtn,
                     glassStyle(theme, true),
@@ -418,8 +440,7 @@ export function AiPromptModal({
               >
                 <SliderRow
                   title="Difficulty"
-                  leftLabel="Beginner"
-                  rightLabel="Advanced"
+                  preset="difficulty"
                   value={settings.difficulty}
                   onChange={(difficulty) => patch({ difficulty })}
                   onDragStart={handleSliderDragStart}
@@ -429,8 +450,7 @@ export function AiPromptModal({
 
                 <SliderRow
                   title="Tone / Style"
-                  leftLabel="Academic"
-                  rightLabel="Street"
+                  preset="toneStyle"
                   value={settings.tone}
                   onChange={(tone) => patch({ tone })}
                   onDragStart={handleSliderDragStart}
@@ -439,9 +459,8 @@ export function AiPromptModal({
                 />
 
                 <SliderRow
-                  title="Text Length"
-                  leftLabel="Short"
-                  rightLabel="Long"
+                  title="Sentence Length"
+                  preset="textLength"
                   value={settings.textLength}
                   onChange={(textLength) => patch({ textLength })}
                   onDragStart={handleSliderDragStart}
@@ -686,15 +705,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
     lineHeight: 12,
-  },
-  sliderLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 2,
-  },
-  sliderEndpoint: {
-    fontSize: 11,
-    fontWeight: '600',
   },
   generateBtn: {
     marginTop: space.md,

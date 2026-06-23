@@ -9,9 +9,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock the API client module
 vi.mock('../services/api', async () => {
-  const actual = await vi.importActual('../services/api');
+  const actual = await vi.importActual<typeof import('../services/api')>('../services/api');
   return {
     ...actual,
+    getBaseUrl: () => 'http://localhost:3001',
   };
 });
 
@@ -31,7 +32,8 @@ describe('API Request Headers', () => {
   });
 
   it('should include x-request-id header when making TTS requests via geminiTtsService', async () => {
-    // Mock fetch to capture headers
+    vi.stubGlobal('atob', (value: string) => Buffer.from(value, 'base64').toString('binary'));
+
     let capturedHeaders: HeadersInit | undefined;
     
     fetchSpy.mockImplementation((url, init) => {

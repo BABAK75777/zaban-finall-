@@ -10,6 +10,7 @@ import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   AppState,
   Modal,
@@ -22,6 +23,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   MobileAudioPlayer,
@@ -63,11 +65,17 @@ import {
   type UiStatus,
 } from '../src/theme';
 import { ActionCluster } from '../src/ui/ActionCluster';
-import { HeroSentence } from '../src/ui/HeroSentence';
+import { AdBanner } from '../src/components/AdBanner';
+import { TappableHeroSentence } from '../src/ui/TappableHeroSentence';
+import { DictionarySettingsModal } from '../src/ui/DictionarySettingsModal';
+import { WordLookupSheet } from '../src/ui/WordLookupSheet';
 import { NavPills } from '../src/ui/NavPills';
 import { AiPromptModal, type AiVoiceType } from '../src/ui/AiPromptModal';
 import { SettingSlider } from '../src/ui/SettingSlider';
+import { SliderEndpointRow } from '../src/ui/SliderEndpointRow';
 import { TopAmbientBar } from '../src/ui/TopAmbientBar';
+import { useResponsiveLayoutMetrics } from '../src/ui/responsiveLayout';
+import { READING_TEST_IDS, voiceTestId } from '../src/ui/testIds';
 import { space } from '../src/ui/spacing';
 import {
   disposeShadowRecording as disposeShadowRecordingSession,
@@ -76,31 +84,29 @@ import {
 } from '../src/audio/shadowRecordingSession';
 
 import { API_BASE_URL } from '../src/config/apiBaseUrl';
+import {
+  defaultDictionarySettings,
+  findDictionaryEntry,
+  getPracticeWordsForAi,
+  hashReadingText,
+  incrementLookupCount,
+  loadDictionaryStore,
+  recordWordInReadingText,
+  removeDictionaryEntry,
+  requestWordLookup,
+  saveDictionaryStore,
+  updateDictionarySettings,
+  upsertDictionaryEntry,
+  type DictionaryEntry,
+  type DictionarySettingsV1,
+} from '../src/dictionary';
+import { requestOcrFromImageDataUrl } from '../src/ocr/ocrApi';
 
 const DEFAULT_TTS_VOICE: AiVoiceType = 'female';
 const DEFAULT_AI_SPEED = 1.0;
 const DEFAULT_TEXT_SIZE = 40;
 const DEFAULT_READ_UNIT = '1' as const;
 type ReadUnit = '1/4' | '1/2' | '3/4' | '1' | '2' | '3' | '4' | '1p' | '2p' | 'page';
-
-const READ_UNIT_ROWS: { label: string; value: ReadUnit }[][] = [
-  [
-    { label: '1/4', value: '1/4' },
-    { label: '1/2', value: '1/2' },
-    { label: '3/4', value: '3/4' },
-  ],
-  [
-    { label: '1 line', value: '1' },
-    { label: '2 lines', value: '2' },
-    { label: '3 lines', value: '3' },
-    { label: '4 lines', value: '4' },
-  ],
-  [
-    { label: '1 paragraph', value: '1p' },
-    { label: '2 paragraphs', value: '2p' },
-    { label: 'Page', value: 'page' },
-  ],
-];
 
 function splitHalfSentence(sentence: string): string[] {
   const midPoint = sentence.indexOf(',', Math.floor(sentence.length / 3));
@@ -289,7 +295,12 @@ function toHex8(n: number): string {
  * Stable sentenceId for cache keys — same text + voice + source always yields same id.
  * Does not use @zaban/tts-core generateChunkHash (not RN-safe).
  */
-/** Cache id is text-only; playback speed is applied client-side (see MobileAudioPlayer). */
+/** Cache id includes voice + TTS speed so audio is generated at the learner's pace (not stretched client-side). */
+
+function formatTtsSpeed(speed: number): string {
+  const clamped = Math.max(0.5, Math.min(1.5, speed));
+  return (Math.round(clamped * 10) / 10).toFixed(1);
+}
 
 type PlaybackRateCapable = {
   setPlaybackRate?: (rate: number) => void;
@@ -331,9 +342,10 @@ function safeGetPlaybackRate(
     return fallback;
   }
 }
-function sentenceToMobileId(sentence: string, voiceApi: string): string {
+function sentenceToMobileId(sentence: string, voiceApi: string, speed = 1.0): string {
   const normalized = sentence.trim().replace(/\s+/g, ' ').replace(/\n+/g, '\n');
-  const key = `${normalized}|${HASH_SOURCE}|${voiceApi}|default|1.0|0|mp3|24000`;
+  const speedKey = formatTtsSpeed(speed);
+  const key = `${normalized}|${HASH_SOURCE}|${voiceApi}|default|${speedKey}|0|mp3|24000`;
   const h1 = fnv1a32(key, 0x811c9dc5);
   const h2 = fnv1a32(key, 0x01000193);
   const h3 = fnv1a32(key, 0x9e3779b9);
@@ -359,6 +371,8 @@ export default function ReadingScreen() {
   const [showTextInput, setShowTextInput] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAiPrompt, setShowAiPrompt] = useState(false);
+  const [showDictionarySettings, setShowDictionarySettings] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
   const { themeId, theme, setTheme, resetTheme } = useTheme();
   const [aiSpeed, setAiSpeed] = useState(DEFAULT_AI_SPEED);
   const [ttsVoiceType, setTtsVoiceType] = useState<AiVoiceType>(DEFAULT_TTS_VOICE);
@@ -372,6 +386,23 @@ export default function ReadingScreen() {
   }, []);
   const [shadowHint, setShadowHint] = useState<string | null>(null);
   const [settingsScrollEnabled, setSettingsScrollEnabled] = useState(true);
+  const [dictionarySettings, setDictionarySettings] = useState<DictionarySettingsV1>(
+    defaultDictionarySettings()
+  );
+  const [dictionaryEntries, setDictionaryEntries] = useState<DictionaryEntry[]>([]);
+  const dictionaryEntriesRef = useRef<DictionaryEntry[]>([]);
+  const [wordLookupVisible, setWordLookupVisible] = useState(false);
+  const [wordLookupLoading, setWordLookupLoading] = useState(false);
+  const [wordLookupError, setWordLookupError] = useState<string | null>(null);
+  const [wordLookupMeaning, setWordLookupMeaning] = useState<string | null>(null);
+  const [wordLookupPartOfSpeech, setWordLookupPartOfSpeech] = useState<string | null>(null);
+  const [wordLookupDisplay, setWordLookupDisplay] = useState('');
+  const [wordLookupKey, setWordLookupKey] = useState<string | null>(null);
+  const [wordLookupSaved, setWordLookupSaved] = useState(false);
+  const [wordLookupAppearanceCount, setWordLookupAppearanceCount] = useState(1);
+  const [wordLookupCount, setWordLookupCount] = useState(1);
+  const wordLookupGenRef = useRef(0);
+  const readingTextHashRef = useRef<string | null>(null);
 
   const [player] = useState(() => new MobileAudioPlayer());
   const [guard] = useState(() => new OperationGuard());
@@ -413,24 +444,38 @@ export default function ReadingScreen() {
   }, [ttsVoiceType]);
 
   useEffect(() => {
-    safeSetPlaybackRate(player, aiSpeed);
-  }, [aiSpeed, player]);
-
-  useEffect(() => {
-    if (showSettings && status === 'playing') {
-      safeSetPlaybackRate(player, aiSpeedRef.current);
-      console.log(
-        '[TTS:Mobile] speed_reapply_on_settings_open rate=',
-        aiSpeedRef.current,
-        'playerRate=',
-        safeGetPlaybackRate(player, aiSpeedRef.current)
-      );
-    }
-  }, [showSettings, status, player]);
-
-  useEffect(() => {
     readUnitRef.current = readUnit;
   }, [readUnit]);
+
+  useEffect(() => {
+    dictionaryEntriesRef.current = dictionaryEntries;
+  }, [dictionaryEntries]);
+
+  useEffect(() => {
+    void (async () => {
+      const store = await loadDictionaryStore();
+      setDictionarySettings(store.settings);
+      setDictionaryEntries(store.entries);
+    })();
+  }, []);
+
+  useEffect(() => {
+    const fullText = text.trim();
+    if (!fullText || dictionaryEntriesRef.current.length === 0) return;
+
+    const textHash = hashReadingText(fullText);
+    if (readingTextHashRef.current === textHash) return;
+    readingTextHashRef.current = textHash;
+
+    void (async () => {
+      const store = await loadDictionaryStore();
+      const nextEntries = recordWordInReadingText(store.entries, fullText, textHash);
+      if (nextEntries !== store.entries) {
+        await saveDictionaryStore({ ...store, entries: nextEntries });
+        setDictionaryEntries(nextEntries);
+      }
+    })();
+  }, [text]);
 
   const handleSliderDragStart = useCallback(() => {
     setSettingsScrollEnabled(false);
@@ -440,24 +485,13 @@ export default function ReadingScreen() {
     setSettingsScrollEnabled(true);
   }, []);
 
-  const handleAiSpeedChange = useCallback(
-    (next: number) => {
-      setAiSpeed(next);
-      aiSpeedRef.current = next;
-      safeSetPlaybackRate(player, next);
-      if (status === 'playing') {
-        console.log(
-          '[TTS:Mobile] speed_change_during_playback rate=',
-          next,
-          'playerRate=',
-          safeGetPlaybackRate(player, next)
-        );
-      }
-    },
-    [player, status]
-  );
+  const handleAiSpeedChange = useCallback((next: number) => {
+    setAiSpeed(next);
+    aiSpeedRef.current = next;
+  }, []);
 
   const colors = theme;
+  const layout = useResponsiveLayoutMetrics();
   const themeFade = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -495,7 +529,11 @@ export default function ReadingScreen() {
   const sentenceToId = useCallback(
     (sentence: string) =>
       Promise.resolve(
-        sentenceToMobileId(sentence, mapTtsVoiceToApi(ttsVoiceTypeRef.current))
+        sentenceToMobileId(
+          sentence,
+          mapTtsVoiceToApi(ttsVoiceTypeRef.current),
+          aiSpeedRef.current
+        )
       ),
     []
   );
@@ -504,6 +542,7 @@ export default function ReadingScreen() {
     if (inFlightFetchRef.current.hasInFlight(sentenceId)) {
       console.log('[TTS:Mobile] duplicate fetch blocked sentenceId=', sentenceId);
     }
+    const ttsSpeed = formatTtsSpeed(aiSpeedRef.current);
     return inFlightFetchRef.current.getOrFetch(sentenceId, async () => {
       const response = await fetch(`${API_BASE_URL}/tts`, {
         method: 'POST',
@@ -511,7 +550,7 @@ export default function ReadingScreen() {
         body: JSON.stringify({
           text: sentence,
           voice: mapTtsVoiceToApi(ttsVoiceTypeRef.current),
-          speed: 1.0,
+          speed: Number(ttsSpeed),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -557,17 +596,28 @@ export default function ReadingScreen() {
     }
   }, [guard, player, releaseShadowGuard, setShadowPhaseSync]);
 
-  const syncSentencesFromText = useCallback((raw: string, unit: ReadUnit = readUnitRef.current) => {
-    const parts = createReadingChunks(raw, unit);
-    setSentences(parts);
-    setSentenceIndex((idx) => {
-      const next = parts.length === 0 ? 0 : Math.min(idx, parts.length - 1);
-      sentenceIndexRef.current = next;
-      return next;
-    });
+  const syncSentencesFromText = useCallback(
+    (raw: string, unit: ReadUnit = readUnitRef.current, forceResetIndex = false) => {
+      const parts = createReadingChunks(raw, unit);
+      const prevFirst = sentencesRef.current[0]?.trim() ?? '';
+      const nextFirst = parts[0]?.trim() ?? '';
+      const textReplaced =
+        prevFirst.length > 0 && nextFirst.length > 0 && prevFirst !== nextFirst;
+      const shouldResetIndex = forceResetIndex || textReplaced;
+
+      setSentences(parts);
+      setSentenceIndex((idx) => {
+        const next =
+          shouldResetIndex || parts.length === 0
+            ? 0
+            : Math.min(idx, parts.length - 1);
+        sentenceIndexRef.current = next;
+        return next;
+      });
     if (parts.length > 0) {
       const voice = mapTtsVoiceToApi(ttsVoiceTypeRef.current);
-      const keepIds = parts.map((s) => sentenceToMobileId(s, voice));
+      const speed = aiSpeedRef.current;
+      const keepIds = parts.map((s) => sentenceToMobileId(s, voice, speed));
       void pruneSentenceCacheToKeepIds(keepIds).catch((err) => {
         console.error('[TTS:Mobile] prune cache after text sync failed:', err);
       });
@@ -577,6 +627,9 @@ export default function ReadingScreen() {
         'textLen=',
         raw.trim().length
       );
+      setStatusDetail(`Ready — 1 of ${parts.length}.`);
+    } else {
+      setStatusDetail('Paste or write text to begin.');
     }
     return parts;
   }, []);
@@ -624,7 +677,7 @@ export default function ReadingScreen() {
     const idx = Math.min(Math.max(0, sentenceIndexRef.current), maxIdx);
     const sentence = parts[idx] ?? '';
     const sentenceId = sentence
-      ? sentenceToMobileId(sentence, mapTtsVoiceToApi(ttsVoiceTypeRef.current))
+      ? sentenceToMobileId(sentence, mapTtsVoiceToApi(ttsVoiceTypeRef.current), aiSpeedRef.current)
       : null;
     await saveReadingSession({
       version: 1,
@@ -678,7 +731,12 @@ export default function ReadingScreen() {
           parts,
           session.sentenceIndex,
           session.sentenceId,
-          (s) => sentenceToMobileId(s, mapTtsVoiceToApi(restoredVoice))
+          (s) =>
+            sentenceToMobileId(
+              s,
+              mapTtsVoiceToApi(restoredVoice),
+              session.aiSpeed > 0 ? session.aiSpeed : DEFAULT_AI_SPEED
+            )
         );
         sentenceIndexRef.current = idx;
         setSentenceIndex(idx);
@@ -886,7 +944,7 @@ export default function ReadingScreen() {
           setStatusDetail(`Playing ${index + 1} of ${list.length}…`);
         }
         const requestId = player.getNextRequestId();
-        await player.play(resolved.audioPath, requestId);
+        await player.play(resolved.audioPath, requestId, { playbackRate: 1.0 });
 
         if (gen !== playbackGenRef.current) {
           return;
@@ -972,7 +1030,11 @@ export default function ReadingScreen() {
       return;
     }
     const nextSentence = parts[next] ?? '';
-    const nextId = sentenceToMobileId(nextSentence, mapTtsVoiceToApi(ttsVoiceTypeRef.current));
+    const nextId = sentenceToMobileId(
+      nextSentence,
+      mapTtsVoiceToApi(ttsVoiceTypeRef.current),
+      aiSpeedRef.current
+    );
     sentenceIndexRef.current = next;
     setSentenceIndex(next);
     logNavigation({ direction: 'next', sentenceIndex: next, sentenceId: nextId });
@@ -1010,7 +1072,11 @@ export default function ReadingScreen() {
       return;
     }
     const prevSentence = parts[prev] ?? '';
-    const prevId = sentenceToMobileId(prevSentence, mapTtsVoiceToApi(ttsVoiceTypeRef.current));
+    const prevId = sentenceToMobileId(
+      prevSentence,
+      mapTtsVoiceToApi(ttsVoiceTypeRef.current),
+      aiSpeedRef.current
+    );
     sentenceIndexRef.current = prev;
     setSentenceIndex(prev);
     logNavigation({ direction: 'back', sentenceIndex: prev, sentenceId: prevId });
@@ -1024,20 +1090,6 @@ export default function ReadingScreen() {
     await persistReadingSession();
     await playSentence(prev, 'nav', parts);
   }, [cancelPlayback, persistReadingSession, playSentence, sentenceIndex, sentences, syncSentencesFromText]);
-
-  const handleReadUnitChange = useCallback(
-    (unit: ReadUnit) => {
-      setReadUnit(unit);
-      readUnitRef.current = unit;
-      syncSentencesFromText(textRef.current, unit);
-      setSentenceIndex(0);
-      sentenceIndexRef.current = 0;
-      void (async () => {
-        await persistReadingSession();
-      })();
-    },
-    [persistReadingSession, syncSentencesFromText]
-  );
 
   /** Internal defaults reset — not exposed in settings UI. */
   const resetSettings = useCallback(() => {
@@ -1071,15 +1123,199 @@ export default function ReadingScreen() {
     }
   }, [commitReadingText, persistReadingSession, showTextInput]);
 
+  const handleDictionarySettingsChange = useCallback((patch: Partial<DictionarySettingsV1>) => {
+    void (async () => {
+      const next = await updateDictionarySettings(patch);
+      setDictionarySettings(next);
+    })();
+  }, []);
+
+  const handleDictionaryEntriesChange = useCallback((entries: DictionaryEntry[]) => {
+    void (async () => {
+      const store = await loadDictionaryStore();
+      await saveDictionaryStore({ ...store, entries });
+      setDictionaryEntries(entries);
+    })();
+  }, []);
+
+  const handlePhotoOcr = useCallback(
+    async (source: 'library' | 'camera') => {
+      if (ocrLoading) return;
+
+      const permission =
+        source === 'library'
+          ? await ImagePicker.requestMediaLibraryPermissionsAsync()
+          : await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Permission needed',
+          source === 'library'
+            ? 'Allow photo access to read text from images.'
+            : 'Allow camera access to photograph text for reading.'
+        );
+        return;
+      }
+
+      const result =
+        source === 'library'
+          ? await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              quality: 0.85,
+              base64: true,
+            })
+          : await ImagePicker.launchCameraAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              quality: 0.85,
+              base64: true,
+            });
+      if (result.canceled || !result.assets[0]?.base64) return;
+
+      const asset = result.assets[0];
+      const mime = asset.mimeType ?? 'image/jpeg';
+      const dataUrl = `data:${mime};base64,${asset.base64}`;
+
+      setOcrLoading(true);
+      try {
+        const extracted = await requestOcrFromImageDataUrl(dataUrl);
+        setShowSettings(false);
+        handleTextChange(extracted);
+        syncSentencesFromText(extracted, readUnitRef.current, true);
+        setStatus('idle');
+        setStatusDetail('Text loaded from photo.');
+        void persistReadingSession();
+      } catch (err) {
+        Alert.alert(
+          'Photo read failed',
+          err instanceof Error ? err.message : 'Could not read text from this image.'
+        );
+      } finally {
+        setOcrLoading(false);
+      }
+    },
+    [handleTextChange, ocrLoading, persistReadingSession, syncSentencesFromText]
+  );
+
+  const handlePhotoOcrFromAlbum = useCallback(
+    () => void handlePhotoOcr('library'),
+    [handlePhotoOcr]
+  );
+
+  const handlePhotoOcrFromCamera = useCallback(
+    () => void handlePhotoOcr('camera'),
+    [handlePhotoOcr]
+  );
+
+  const handleWordPress = useCallback(
+    (lookup: string, displayWord: string) => {
+      if (!lookup || sentencesRef.current.length === 0) return;
+
+      const targetLanguage = dictionarySettings.translationLanguage;
+      const existing = findDictionaryEntry(dictionaryEntriesRef.current, lookup, targetLanguage);
+      const context =
+        sentencesRef.current[sentenceIndexRef.current] ?? sentencesRef.current[0] ?? '';
+
+      setWordLookupKey(lookup);
+      setWordLookupDisplay(displayWord);
+      setWordLookupVisible(true);
+      setWordLookupLoading(true);
+      setWordLookupError(null);
+      setWordLookupMeaning(existing?.meaning ?? null);
+      setWordLookupPartOfSpeech(existing?.partOfSpeech ?? null);
+      setWordLookupSaved(Boolean(existing));
+      setWordLookupAppearanceCount(existing?.textAppearanceCount ?? 1);
+      setWordLookupCount((existing?.lookupCount ?? 0) + 1);
+
+      const lookupGen = wordLookupGenRef.current + 1;
+      wordLookupGenRef.current = lookupGen;
+
+      void (async () => {
+        try {
+          const result = await requestWordLookup(API_BASE_URL, {
+            word: displayWord,
+            context,
+            targetLanguage,
+          });
+
+          if (wordLookupGenRef.current !== lookupGen) return;
+
+          setWordLookupMeaning(result.meaning);
+          setWordLookupPartOfSpeech(result.partOfSpeech ?? null);
+          setWordLookupLoading(false);
+          setWordLookupError(null);
+
+          if (existing) {
+            const store = await loadDictionaryStore();
+            const nextEntries = incrementLookupCount(store.entries, lookup, targetLanguage);
+            await saveDictionaryStore({ ...store, entries: nextEntries });
+            setDictionaryEntries(nextEntries);
+            const touched = findDictionaryEntry(nextEntries, lookup, targetLanguage);
+            setWordLookupCount(touched?.lookupCount ?? existing.lookupCount + 1);
+            setWordLookupAppearanceCount(
+              touched?.textAppearanceCount ?? existing.textAppearanceCount
+            );
+          }
+        } catch (err) {
+          if (wordLookupGenRef.current !== lookupGen) return;
+          setWordLookupLoading(false);
+          setWordLookupError(err instanceof Error ? err.message : 'Lookup failed.');
+        }
+      })();
+    },
+    [dictionarySettings.translationLanguage]
+  );
+
+  const handleWordLookupToggleSave = useCallback(() => {
+    if (!wordLookupKey || !wordLookupMeaning || wordLookupLoading) return;
+
+    void (async () => {
+      const targetLanguage = dictionarySettings.translationLanguage;
+      const store = await loadDictionaryStore();
+
+      if (wordLookupSaved) {
+        const nextEntries = removeDictionaryEntry(store.entries, wordLookupKey, targetLanguage);
+        await saveDictionaryStore({ ...store, entries: nextEntries });
+        setDictionaryEntries(nextEntries);
+        setWordLookupSaved(false);
+        return;
+      }
+
+      const textHash = hashReadingText(textRef.current);
+      const withAppearance = recordWordInReadingText(store.entries, textRef.current, textHash);
+      const nextEntries = upsertDictionaryEntry(withAppearance, {
+        displayWord: wordLookupDisplay,
+        meaning: wordLookupMeaning,
+        partOfSpeech: wordLookupPartOfSpeech ?? undefined,
+        targetLanguage,
+        textAppearanceCount:
+          findDictionaryEntry(withAppearance, wordLookupKey, targetLanguage)?.textAppearanceCount ?? 1,
+      });
+      const saved = findDictionaryEntry(nextEntries, wordLookupKey, targetLanguage);
+      await saveDictionaryStore({ ...store, entries: nextEntries });
+      setDictionaryEntries(nextEntries);
+      setWordLookupSaved(true);
+      setWordLookupCount(saved?.lookupCount ?? 1);
+      setWordLookupAppearanceCount(saved?.textAppearanceCount ?? 1);
+    })();
+  }, [
+    dictionarySettings.translationLanguage,
+    wordLookupDisplay,
+    wordLookupKey,
+    wordLookupLoading,
+    wordLookupMeaning,
+    wordLookupPartOfSpeech,
+    wordLookupSaved,
+  ]);
+
   const handleAiGenerated = useCallback(
     (generatedText: string) => {
+      cancelPlayback();
       handleTextChange(generatedText);
-      commitReadingText();
+      syncSentencesFromText(generatedText, readUnitRef.current, true);
       setShowAiPrompt(false);
       setShowSettings(false);
       void persistReadingSession();
     },
-    [commitReadingText, handleTextChange, persistReadingSession]
+    [cancelPlayback, handleTextChange, persistReadingSession, syncSentencesFromText]
   );
 
   const dismissPracticeTextInput = useCallback(() => {
@@ -1148,7 +1384,8 @@ export default function ReadingScreen() {
         const sentence = parts[idx] ?? '';
         const sentenceId = sentenceToMobileId(
           sentence,
-          mapTtsVoiceToApi(ttsVoiceTypeRef.current)
+          mapTtsVoiceToApi(ttsVoiceTypeRef.current),
+          aiSpeedRef.current
         );
         const cachedPath = await getCachedSentenceAudio(sentenceId);
 
@@ -1162,7 +1399,6 @@ export default function ReadingScreen() {
           return;
         }
 
-        safeSetPlaybackRate(player, aiSpeedRef.current);
         await playSentence(idx, 'replay', parts);
       } catch (err) {
         if (playGen === shadowPlayGenRef.current) {
@@ -1325,7 +1561,10 @@ export default function ReadingScreen() {
     : shadowHint ?? statusDetail;
   const waveformActive = aiBusy || shadowPlaying;
   const showStatusHint =
-    status !== 'idle' || shadowRecording || shadowHint != null;
+    status !== 'idle' ||
+    shadowRecording ||
+    shadowHint != null ||
+    (total > 0 && displayStatusDetail.startsWith('Ready'));
   const sentenceFade = useRef(new Animated.Value(1)).current;
   const hearPulse = useRef(new Animated.Value(1)).current;
   const micBreath = useRef(new Animated.Value(1)).current;
@@ -1393,10 +1632,16 @@ export default function ReadingScreen() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar style={colors.statusBar} />
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={['top']}>
         <AtmosphereBackground theme={theme} />
         <Animated.View style={[styles.container, { opacity: themeFade }]}>
-          <TopAmbientBar theme={theme} onMenuPress={() => setShowSettings(true)} />
+          <TopAmbientBar
+            theme={theme}
+            onMenuPress={() => setShowSettings(true)}
+            onAlbumPress={handlePhotoOcrFromAlbum}
+            onCameraPress={handlePhotoOcrFromCamera}
+            photoLoading={ocrLoading}
+          />
 
           <Modal
             visible={showSettings}
@@ -1408,6 +1653,7 @@ export default function ReadingScreen() {
               <Pressable
                 style={[styles.settingsPanel, { backgroundColor: colors.surface, borderColor: colors.border }]}
                 onPress={(e) => e.stopPropagation()}
+                testID={READING_TEST_IDS.settingsPanel}
               >
                 <ScrollView
                   showsVerticalScrollIndicator={false}
@@ -1415,7 +1661,13 @@ export default function ReadingScreen() {
                 >
                   <View style={styles.settingsHeader}>
                     <Text style={[styles.settingsTitle, { color: colors.textDim }]}>Settings</Text>
-                    <Pressable onPress={() => setShowSettings(false)} hitSlop={8}>
+                    <Pressable
+                      onPress={() => setShowSettings(false)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Close"
+                      testID={READING_TEST_IDS.settingsClose}
+                    >
                       <Text style={[styles.settingsClose, { color: colors.textMuted }]}>✕</Text>
                     </Pressable>
                   </View>
@@ -1429,79 +1681,106 @@ export default function ReadingScreen() {
                     />
                   </View>
 
-                  <View style={styles.settingsGrid}>
-                    {(
-                      [
-                        {
-                          key: 'write',
-                          label: 'Edit text',
-                          icon: '✍️',
-                          a11y: 'Edit',
-                          onPress: handleWritePress,
-                        },
-                        {
-                          key: 'ai',
-                          label: 'AI',
-                          icon: '✨',
-                          a11y: 'AI',
-                          onPress: () => {
+                  <View style={styles.settingsActions}>
+                    <View style={styles.settingsTopRow}>
+                      <View style={styles.settingsLeftColumn}>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.settingsTileCompact,
+                            { borderColor: colors.border, backgroundColor: colors.bg },
+                            pressed && { opacity: 0.85 },
+                          ]}
+                          onPress={handleWritePress}
+                          accessibilityRole="button"
+                          accessibilityLabel="Edit"
+                          testID={READING_TEST_IDS.settingsEditText}
+                        >
+                          <Text style={styles.settingsTileCompactIcon}>✍️</Text>
+                          <Text style={[styles.settingsTileCompactLabel, { color: colors.textMuted }]}>
+                            Edit text
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.settingsTileCompact,
+                            { borderColor: colors.border, backgroundColor: colors.bg },
+                            pressed && { opacity: 0.85 },
+                            ocrLoading && { opacity: 0.6 },
+                          ]}
+                          onPress={handlePhotoOcrFromAlbum}
+                          disabled={ocrLoading}
+                          accessibilityRole="button"
+                          accessibilityLabel="Choose photo from album"
+                          testID={READING_TEST_IDS.settingsAlbum}
+                        >
+                          <Text style={styles.settingsTileCompactIcon}>🖼️</Text>
+                          <Text style={[styles.settingsTileCompactLabel, { color: colors.textMuted }]}>
+                            Album
+                          </Text>
+                        </Pressable>
+                      </View>
+                      <View style={styles.settingsRightColumn}>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.settingsTileCompact,
+                            { borderColor: colors.border, backgroundColor: colors.bg },
+                            pressed && { opacity: 0.85 },
+                          ]}
+                          onPress={() => {
                             setShowSettings(false);
                             setShowAiPrompt(true);
-                          },
-                        },
-                      ] as const
-                    ).map((item) => (
-                      <Pressable
-                        key={item.key}
-                        style={({ pressed }) => [
-                          styles.settingsTile,
-                          { borderColor: colors.border, backgroundColor: colors.bg },
-                          pressed && { opacity: 0.85 },
-                        ]}
-                        onPress={item.onPress}
-                        disabled={'disabled' in item ? Boolean(item.disabled) : false}
-                        accessibilityRole="button"
-                        accessibilityLabel={item.a11y}
-                      >
-                        <Text style={styles.settingsTileIcon}>{item.icon}</Text>
-                        <Text style={[styles.settingsTileLabel, { color: colors.textMuted }]}>
-                          {item.label}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-
-                  <View style={styles.readUnitRows}>
-                    {READ_UNIT_ROWS.map((row, rowIndex) => (
-                      <View key={`read-unit-row-${rowIndex}`} style={styles.readUnitRow}>
-                        {row.map((unit) => {
-                          const selected = readUnit === unit.value;
-                          return (
-                            <Pressable
-                              key={unit.value}
-                              style={[
-                                styles.readUnitBtn,
-                                {
-                                  borderColor: selected ? colors.selection.border : colors.border,
-                                  backgroundColor: selected ? colors.selection.bg : 'transparent',
-                                },
-                              ]}
-                              onPress={() => handleReadUnitChange(unit.value)}
-                            >
-                              <Text
-                                style={[
-                                  styles.readUnitBtnText,
-                                  { color: selected ? colors.selection.text : colors.text },
-                                ]}
-                                numberOfLines={2}
-                              >
-                                {unit.label}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel="AI"
+                          testID={READING_TEST_IDS.settingsAi}
+                        >
+                          <Text style={styles.settingsTileCompactIcon}>✨</Text>
+                          <Text style={[styles.settingsTileCompactLabel, { color: colors.textMuted }]}>
+                            AI
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.settingsTileCompact,
+                            { borderColor: colors.border, backgroundColor: colors.bg },
+                            pressed && { opacity: 0.85 },
+                            ocrLoading && { opacity: 0.6 },
+                          ]}
+                          onPress={handlePhotoOcrFromCamera}
+                          disabled={ocrLoading}
+                          accessibilityRole="button"
+                          accessibilityLabel="Take photo with camera"
+                          testID={READING_TEST_IDS.settingsCamera}
+                        >
+                          {ocrLoading ? (
+                            <ActivityIndicator size="small" color={colors.accent} />
+                          ) : (
+                            <Text style={styles.settingsTileCompactIcon}>📷</Text>
+                          )}
+                          <Text style={[styles.settingsTileCompactLabel, { color: colors.textMuted }]}>
+                            {ocrLoading ? 'Reading…' : 'Camera'}
+                          </Text>
+                        </Pressable>
                       </View>
-                    ))}
+                    </View>
+                    <View style={styles.settingsDicRow}>
+                      <Pressable
+                          style={({ pressed }) => [
+                            styles.settingsTileCompact,
+                            { borderColor: colors.border, backgroundColor: colors.bg },
+                            pressed && { opacity: 0.85 },
+                          ]}
+                          onPress={() => setShowDictionarySettings(true)}
+                          accessibilityRole="button"
+                          accessibilityLabel="Dictionary"
+                          testID={READING_TEST_IDS.settingsDic}
+                        >
+                          <Text style={styles.settingsTileCompactIcon}>📖</Text>
+                          <Text style={[styles.settingsTileCompactLabel, { color: colors.textMuted }]}>
+                            Dic
+                          </Text>
+                        </Pressable>
+                    </View>
                   </View>
 
                   <Text style={[styles.settingsSectionLabel, { color: colors.textDim }]}>
@@ -1513,6 +1792,7 @@ export default function ReadingScreen() {
                       return (
                         <Pressable
                           key={voice}
+                          testID={voiceTestId(voice)}
                           style={[
                             styles.voiceTypeBtn,
                             {
@@ -1539,53 +1819,86 @@ export default function ReadingScreen() {
                     })}
                   </View>
 
-                  <Text style={[styles.settingsSectionLabel, { color: colors.textDim }]}>
-                    AI SPEED: {aiSpeed.toFixed(1)}x
-                  </Text>
-                  <View style={styles.sliderEndpointRow}>
-                    <Text style={[styles.sliderEndpointLabel, { color: colors.textMuted }]}>Slow</Text>
-                    <Text style={[styles.sliderEndpointLabel, { color: colors.textMuted }]}>Fast</Text>
+                  <View style={styles.inlineSettingRow}>
+                    <Text
+                      style={[styles.settingsSectionLabel, styles.inlineSettingLabel, { color: colors.textDim }]}
+                    >
+                      AI SPEED: {aiSpeed.toFixed(1)}x
+                    </Text>
+                    <View style={styles.inlineSettingControl}>
+                      <SliderEndpointRow
+                        value={aiSpeed}
+                        min={0.5}
+                        max={1.5}
+                        mutedColor={colors.textMuted}
+                        accentColor={colors.accent}
+                        preset="aiSpeed"
+                        labelMarginBottom={0}
+                        inline
+                      >
+                        <SettingSlider
+                          value={aiSpeed}
+                          min={0.5}
+                          max={1.5}
+                          step={0.1}
+                          onChange={handleAiSpeedChange}
+                          onDragStart={handleSliderDragStart}
+                          onDragEnd={handleSliderDragEnd}
+                          accent={colors.slider.fill}
+                          border={colors.slider.border}
+                          track={colors.slider.track}
+                          compact
+                          bilateral
+                        />
+                      </SliderEndpointRow>
+                    </View>
                   </View>
-                  <SettingSlider
-                    value={aiSpeed}
-                    min={0.5}
-                    max={1.5}
-                    step={0.1}
-                    onChange={handleAiSpeedChange}
-                    onDragStart={handleSliderDragStart}
-                    onDragEnd={handleSliderDragEnd}
-                    accent={colors.slider.fill}
-                    border={colors.slider.border}
-                    track={colors.slider.track}
-                    bilateral
-                  />
 
-                  <View style={styles.textSizeHeader}>
-                    <Text style={[styles.settingsSectionLabel, { color: colors.textDim, marginBottom: 0 }]}>
+                  <View style={styles.inlineSettingRow}>
+                    <Text
+                      style={[styles.settingsSectionLabel, styles.inlineSettingLabel, { color: colors.textDim }]}
+                    >
                       Text size: {textSize}
                     </Text>
+                    <View style={styles.inlineSettingControl}>
+                      <View style={styles.inlineTextSizeSlider}>
+                        <Text style={[styles.sliderEndpointLabel, { color: colors.textMuted }]}>Aa</Text>
+                        <View style={styles.inlineSliderTrack}>
+                          <SettingSlider
+                            value={textSize}
+                            min={22}
+                            max={48}
+                            step={2}
+                            onChange={setTextSize}
+                            onDragStart={handleSliderDragStart}
+                            onDragEnd={handleSliderDragEnd}
+                            accent={colors.slider.fill}
+                            border={colors.slider.border}
+                            track={colors.slider.track}
+                            compact
+                            bilateral
+                          />
+                        </View>
+                        <Text style={[styles.sliderEndpointLabel, { color: colors.textMuted, fontSize: 15 }]}>
+                          Aa
+                        </Text>
+                      </View>
+                    </View>
                   </View>
-                  <View style={styles.sliderEndpointRow}>
-                    <Text style={[styles.sliderEndpointLabel, { color: colors.textMuted }]}>Aa</Text>
-                    <Text style={[styles.sliderEndpointLabel, { color: colors.textMuted, fontSize: 15 }]}>Aa</Text>
-                  </View>
-                  <SettingSlider
-                    value={textSize}
-                    min={22}
-                    max={48}
-                    step={2}
-                    onChange={setTextSize}
-                    onDragStart={handleSliderDragStart}
-                    onDragEnd={handleSliderDragEnd}
-                    accent={colors.slider.fill}
-                    border={colors.slider.border}
-                    track={colors.slider.track}
-                    bilateral
-                  />
                 </ScrollView>
               </Pressable>
             </Pressable>
           </Modal>
+
+          <DictionarySettingsModal
+            visible={showDictionarySettings}
+            onClose={() => setShowDictionarySettings(false)}
+            theme={theme}
+            settings={dictionarySettings}
+            entries={dictionaryEntries}
+            onChange={handleDictionarySettingsChange}
+            onEntriesChange={handleDictionaryEntriesChange}
+          />
 
           <AiPromptModal
             visible={showAiPrompt}
@@ -1594,10 +1907,29 @@ export default function ReadingScreen() {
             apiBaseUrl={API_BASE_URL}
             theme={theme}
             themeId={themeId}
+            practiceWords={getPracticeWordsForAi(dictionaryEntries)}
+            useDictionaryInAi={getPracticeWordsForAi(dictionaryEntries).length > 0}
+          />
+
+          <WordLookupSheet
+            visible={wordLookupVisible}
+            theme={theme}
+            displayWord={wordLookupDisplay}
+            targetLanguage={dictionarySettings.translationLanguage}
+            meaning={wordLookupMeaning}
+            partOfSpeech={wordLookupPartOfSpeech}
+            loading={wordLookupLoading}
+            error={wordLookupError}
+            savedToDictionary={wordLookupSaved}
+            textAppearanceCount={wordLookupAppearanceCount}
+            lookupCount={wordLookupCount}
+            canToggleSave={Boolean(wordLookupMeaning) && !wordLookupLoading && !wordLookupError}
+            onClose={() => setWordLookupVisible(false)}
+            onToggleSave={handleWordLookupToggleSave}
           />
 
           {showTextInput ? (
-            <View style={styles.textInputWrap}>
+            <View style={[styles.textInputWrap, { marginHorizontal: layout.textInputMarginH }]} testID={READING_TEST_IDS.practiceText}>
               <Text style={[styles.textInputLabel, { color: colors.textDim }]}>Practice text</Text>
               <View
                 style={[
@@ -1610,6 +1942,7 @@ export default function ReadingScreen() {
                   hitSlop={10}
                   accessibilityRole="button"
                   accessibilityLabel="Close practice text"
+                  testID={READING_TEST_IDS.practiceTextClose}
                   style={({ pressed }) => [
                     styles.textInputClose,
                     pressed && { opacity: 0.75 },
@@ -1635,35 +1968,48 @@ export default function ReadingScreen() {
                   onChangeText={handleTextChange}
                   editable={!busy}
                   onBlur={() => commitReadingText()}
+                  testID={READING_TEST_IDS.practiceTextInput}
                 />
               </View>
             </View>
           ) : null}
 
-          <HeroSentence
+          <TappableHeroSentence
             theme={theme}
             text={currentSentence}
             fontSize={textSize}
             isPlaceholder={total === 0}
             opacity={sentenceFade}
             waveformActive={waveformActive}
+            onWordPress={total > 0 ? handleWordPress : undefined}
+            selectedWord={wordLookupKey}
           />
 
           {showStatusHint ? (
-            <Text style={[styles.statusHint, { color: colors.textDim }]} numberOfLines={1}>
+            <Text
+              style={[
+                styles.statusHint,
+                { color: colors.textDim, marginHorizontal: layout.heroPadH },
+              ]}
+              numberOfLines={1}
+              testID={READING_TEST_IDS.statusHint}
+              accessibilityRole="text"
+            >
               {displayStatusDetail}
             </Text>
           ) : null}
 
-          <View style={styles.controlsDock}>
-            <ActionCluster
+          <View
+            style={[
+              styles.controlsDock,
+              { paddingHorizontal: layout.dockPadH },
+            ]}
+            testID={READING_TEST_IDS.controlsDock}
+          >
+            <NavPills
               theme={theme}
-              micBreath={micBreath}
-              hearPulse={hearPulse}
-              shadowRecording={shadowRecording}
-              shadowStarting={shadowStarting}
-              shadowPlaying={shadowPlaying}
-              busy={busy}
+              backDisabled={busy || total === 0 || sentenceIndex <= 0}
+              nextDisabled={busy || total === 0 || sentenceIndex >= total - 1}
               hearDisabled={
                 status === 'fetching' ||
                 shadowStarting ||
@@ -1671,24 +2017,28 @@ export default function ReadingScreen() {
                 shadowPlaying
               }
               hearLoading={aiBusy}
-              onMic={() => {
-                hapticLight();
-                void handleShadow();
-              }}
+              hearPulse={hearPulse}
+              onBack={handleBack}
+              onNext={handleNext}
               onHear={() => {
                 hapticLight();
                 void handleHearAi();
               }}
             />
-            <NavPills
+            <ActionCluster
               theme={theme}
-              backDisabled={busy || total === 0 || sentenceIndex <= 0}
-              nextDisabled={busy || total === 0 || sentenceIndex >= total - 1}
-              onBack={handleBack}
-              onNext={handleNext}
+              micBreath={micBreath}
+              shadowRecording={shadowRecording}
+              shadowStarting={shadowStarting}
+              shadowPlaying={shadowPlaying}
+              onMic={() => {
+                hapticLight();
+                void handleShadow();
+              }}
             />
           </View>
         </Animated.View>
+        <AdBanner backgroundColor={colors.bg} />
       </SafeAreaView>
     </>
   );
@@ -1733,6 +2083,46 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 12,
   },
+  settingsActions: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  settingsTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  settingsLeftColumn: {
+    flex: 1,
+    maxWidth: 120,
+    gap: 8,
+  },
+  settingsRightColumn: {
+    flex: 1,
+    maxWidth: 120,
+    gap: 8,
+  },
+  settingsDicRow: {
+    alignItems: 'center',
+  },
+  settingsTileCompact: {
+    flex: 1,
+    maxWidth: 120,
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingVertical: 6,
+  },
+  settingsTileCompactIcon: { fontSize: 14 },
+  settingsTileCompactLabel: {
+    fontSize: 7,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
   settingsTile: {
     flex: 1,
     maxWidth: 160,
@@ -1751,24 +2141,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     textTransform: 'uppercase',
     marginBottom: 8,
-  },
-  readUnitRows: { gap: 8, marginBottom: 14 },
-  readUnitRow: { flexDirection: 'row', gap: 6, alignItems: 'stretch' },
-  readUnitBtn: {
-    flex: 1,
-    minHeight: 40,
-    paddingHorizontal: 6,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  readUnitBtnText: {
-    fontSize: 10,
-    fontWeight: '700',
-    textAlign: 'center',
-    lineHeight: 13,
   },
   voiceTypeRow: {
     flexDirection: 'row',
@@ -1793,16 +2165,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-  textSizeHeader: {
+  inlineSettingRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    gap: 8,
+    marginBottom: 10,
   },
-  sliderEndpointRow: {
+  inlineSettingLabel: {
+    width: 92,
+    marginBottom: 0,
+    flexShrink: 0,
+  },
+  inlineSettingControl: {
+    flex: 1,
+    minWidth: 0,
+  },
+  inlineTextSizeSlider: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
+    alignItems: 'center',
+    gap: 6,
+  },
+  inlineSliderTrack: {
+    flex: 1,
+    minWidth: 0,
   },
   sliderEndpointLabel: {
     fontSize: 11,
@@ -1831,7 +2216,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     lineHeight: 15,
   },
-  textInputWrap: { marginHorizontal: 20, marginBottom: 12 },
+  textInputWrap: { marginBottom: 12 },
   textInputLabel: {
     fontSize: 11,
     fontWeight: '600',
@@ -1877,13 +2262,11 @@ const styles = StyleSheet.create({
   statusHint: {
     textAlign: 'center',
     fontSize: 12,
-    marginHorizontal: space.heroPadH,
     marginBottom: space.xs,
     letterSpacing: 0.2,
     zIndex: 6,
   },
   controlsDock: {
-    paddingHorizontal: space.lg,
     paddingTop: space.xs,
     paddingBottom: space.md,
     gap: space.lg,

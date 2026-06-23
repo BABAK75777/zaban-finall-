@@ -2,6 +2,7 @@ import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ThemeId, ThemePalette } from './themeTypes';
 import { THEME_ORDER } from './themeTypes';
+import { themeTestId } from '../ui/testIds';
 
 interface ThemeSwitcherProps {
   themeId: ThemeId;
@@ -51,6 +52,7 @@ export function ThemeSwitcher({ themeId, theme, onSelect, disabled }: ThemeSwitc
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             accessibilityLabel={`${SHORT_LABELS[id]} theme`}
+            testID={themeTestId(id)}
           >
             <Text
               style={[

@@ -26,7 +26,14 @@ import {
   resolveOutputLanguageFromCode,
   buildAiGenerateMessages,
   isInvalidAiGenerateResponse,
+  resolveAiSentenceLength,
+  AI_GENERATE_SENTENCE_COUNT,
 } from './utils/resolveOutputLanguage.js';
+import {
+  buildDictionaryLookupMessages,
+  isDictionaryLanguageCode,
+  parseDictionaryLookupResponse,
+} from './utils/dictionaryLookup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1777,6 +1784,85 @@ app.post('/ocr', async (req, res) => {
 });
 
 // ============================================================================
+// DICTIONARY / WORD LOOKUP
+// ============================================================================
+
+/**
+ * POST /dictionary/lookup - Brief learner-friendly word meaning in target language
+ */
+app.post('/dictionary/lookup', async (req, res) => {
+  const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+  try {
+    if (!isOpenRouterConfigured()) {
+      return res.status(500).json({
+        ok: false,
+        error: 'API_KEY_MISSING',
+        debugId: requestId,
+        details: 'OPENROUTER_API_KEY not configured.',
+      });
+    }
+
+    const { word, context, targetLanguage, sourceLanguage } = req.body ?? {};
+    const trimmedWord = typeof word === 'string' ? word.trim() : '';
+
+    if (!trimmedWord || trimmedWord.length > 80) {
+      return res.status(400).json({
+        ok: false,
+        error: 'INVALID_INPUT',
+        debugId: requestId,
+        details: 'word is required (max 80 characters)',
+      });
+    }
+
+    const target =
+      typeof targetLanguage === 'string' && isDictionaryLanguageCode(targetLanguage)
+        ? targetLanguage.trim().toLowerCase()
+        : 'fa';
+
+    const generatedText = await openRouterChatCompletion({
+      messages: buildDictionaryLookupMessages({
+        word: trimmedWord,
+        context: typeof context === 'string' ? context : '',
+        targetLanguage: target,
+        sourceLanguage: typeof sourceLanguage === 'string' ? sourceLanguage : undefined,
+      }),
+      max_tokens: 256,
+    });
+
+    const parsed = parseDictionaryLookupResponse(
+      typeof generatedText === 'string' ? generatedText : ''
+    );
+
+    if (!parsed) {
+      return res.status(500).json({
+        ok: false,
+        error: 'LOOKUP_FAILED',
+        debugId: requestId,
+        details: 'Could not parse dictionary response.',
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      word: trimmedWord,
+      targetLanguage: target,
+      meaning: parsed.meaning,
+      partOfSpeech: parsed.partOfSpeech ?? null,
+    });
+  } catch (error) {
+    const errorMessage = error?.message || 'Unknown error';
+    console.error(`[Dictionary:${requestId}] Error:`, errorMessage);
+    return res.status(500).json({
+      ok: false,
+      error: 'LOOKUP_FAILED',
+      debugId: requestId,
+      details: errorMessage,
+    });
+  }
+});
+
+// ============================================================================
 // AI PRACTICE TEXT GENERATION
 // ============================================================================
 
@@ -1799,7 +1885,8 @@ app.post('/ai/generate', async (req, res) => {
       });
     }
 
-    const { prompt, difficulty, tone, textLength, voiceType, targetLanguage } = req.body ?? {};
+    const { prompt, difficulty, tone, textLength, voiceType, targetLanguage, practiceWords } =
+      req.body ?? {};
 
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
       return res.status(400).json({
@@ -1818,9 +1905,10 @@ app.post('/ai/generate', async (req, res) => {
     const d = clamp01(difficulty);
     const t = clamp01(tone);
     const len = clamp01(textLength, 0.35);
+    const { wordsMin, wordsMax, styleHint } = resolveAiSentenceLength(len);
+    const sentenceTarget = AI_GENERATE_SENTENCE_COUNT;
     const voice =
       voiceType === 'male' ? 'male' : voiceType === 'female' ? 'female' : 'female';
-    const sentenceTarget = Math.max(3, Math.min(35, Math.round(7 + len * 28)));
 
     const difficultyLabel =
       d <= 0.25 ? 'beginner (A1-A2)' : d <= 0.5 ? 'lower-intermediate (B1)' : d <= 0.75 ? 'upper-intermediate (B2)' : 'advanced (C1)';
@@ -1844,7 +1932,11 @@ app.post('/ai/generate', async (req, res) => {
       toneLabel,
       voice,
       sentenceTarget,
+      wordsMin,
+      wordsMax,
+      styleHint,
       outputLanguage,
+      practiceWords: Array.isArray(practiceWords) ? practiceWords : [],
     };
 
     let text = '';

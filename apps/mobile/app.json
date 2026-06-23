@@ -25,7 +25,9 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.CAMERA"
       ],
       "intentFilters": [
         {
@@ -45,7 +47,14 @@
     },
     "plugins": [
       "expo-router",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Zaban to read text from your photos.",
+          "cameraPermission": "Allow Zaban to take photos for text recognition."
+        }
+      ]
     ],
     "extra": {
       "eas": {

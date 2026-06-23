@@ -13,7 +13,9 @@
     "build": "npm run build --workspaces",
     "mobile": "cd apps/mobile && npm start",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:mobile-layout": "vitest run tests/readingScreenAutomation.test.ts tests/responsiveLayout.test.ts",
+    "test:mobile-render": "npm test --prefix apps/mobile"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",

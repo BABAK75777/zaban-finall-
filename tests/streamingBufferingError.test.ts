@@ -6,6 +6,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+vi.mock('../services/api', () => ({
+  getBaseUrl: () => 'http://localhost:3001',
+}));
+
 import { streamingTtsOrchestrator } from '../services/streamingTtsOrchestrator';
 
 describe('Streaming Buffering Error Handling', () => {

@@ -131,6 +131,9 @@ export const LANGUAGE_BY_CODE = {
   zh: { language: 'Chinese', code: 'zh' },
   ko: { language: 'Korean', code: 'ko' },
   en: { language: 'English', code: 'en' },
+  hi: { language: 'Hindi', code: 'hi' },
+  uk: { language: 'Ukrainian', code: 'uk' },
+  ur: { language: 'Urdu', code: 'ur' },
 };
 
 /**
@@ -200,6 +203,101 @@ export function isInvalidAiGenerateResponse(text, outputLanguage) {
   return false;
 }
 
+/** Fixed sentence count for each AI generate request (slider controls length per sentence only). */
+export const AI_GENERATE_SENTENCE_COUNT = 20;
+
+/**
+ * Map UI slider (0 = short sentences, 1 = long sentences) to word-count guidance for the model.
+ * @param {number} textLength
+ * @returns {{ wordsMin: number, wordsMax: number, styleHint: string }}
+ */
+export function resolveAiSentenceLength(textLength) {
+  const len =
+    typeof textLength === 'number' && !Number.isNaN(textLength)
+      ? Math.max(0, Math.min(1, textLength))
+      : 0.35;
+  const wordsMin = Math.round(4 + len * 18);
+  const wordsMax = Math.round(10 + len * 38);
+  const styleHint =
+    len <= 0.33
+      ? 'Keep each sentence brief and simple—one clear idea per sentence.'
+      : len <= 0.66
+        ? 'Use natural medium-length sentences with normal detail.'
+        : 'Use longer, richer sentences with more detail (commas and clauses are fine).';
+  return { wordsMin, wordsMax, styleHint };
+}
+
+/** Max extra sentences / length when weaving vocabulary (10%). */
+export const AI_PRACTICE_LENGTH_BOOST_RATIO = 0.1;
+
+/**
+ * @param {{
+ *   practiceWords?: string[],
+ *   grammarFocus?: boolean,
+ *   speakingPractice?: boolean,
+ *   idiomsExpressions?: boolean,
+ *   sentenceTarget: number,
+ *   wordsMin: number,
+ *   wordsMax: number,
+ * }} params
+ */
+export function buildAiPracticePromptBlock({
+  practiceWords = [],
+  grammarFocus = false,
+  speakingPractice = false,
+  idiomsExpressions = false,
+  sentenceTarget,
+  wordsMin,
+  wordsMax,
+}) {
+  const practiceList = Array.isArray(practiceWords)
+    ? [...new Set(practiceWords.map((w) => String(w).trim()).filter(Boolean))].slice(0, 24)
+    : [];
+
+  if (practiceList.length === 0) {
+    return {
+      practiceBlock: '',
+      sentenceTarget,
+      wordsMin,
+      wordsMax,
+    };
+  }
+
+  const boostedSentences = Math.min(
+    sentenceTarget + Math.max(1, Math.round(sentenceTarget * AI_PRACTICE_LENGTH_BOOST_RATIO)),
+    Math.round(sentenceTarget * (1 + AI_PRACTICE_LENGTH_BOOST_RATIO))
+  );
+  const boostedWordsMax = Math.round(wordsMax * (1 + AI_PRACTICE_LENGTH_BOOST_RATIO));
+
+  const variationHints = [];
+  if (grammarFocus) {
+    variationHints.push(
+      'Use varied grammatical forms of each practice word (tenses, plural/singular, natural inflections).'
+    );
+  }
+  if (speakingPractice) {
+    variationHints.push(
+      'Place each practice word in natural spoken contexts; mix statements and questions where appropriate.'
+    );
+  }
+  if (idiomsExpressions) {
+    variationHints.push('Include idiomatic or expressive uses when they fit the topic.');
+  }
+
+  const practiceBlock = `Vocabulary practice (required): weave these learner words into the passage: ${practiceList.join(', ')}.
+- Spread usage across the text at different points (not clustered in one paragraph).
+- Each listed word should appear in at least 3 distinct sentences and 4–6 times total when natural.
+- Use different contexts for repeats; do not repeat the same sentence pattern.
+${variationHints.length > 0 ? `${variationHints.join('\n')}\n` : ''}- Keep the passage natural; if the topic is very diverse, stay within at most 10% extra length (sentence count or sentence length) rather than forcing awkward repetition.`;
+
+  return {
+    practiceBlock,
+    sentenceTarget: boostedSentences,
+    wordsMin,
+    wordsMax: boostedWordsMax,
+  };
+}
+
 /**
  * @param {{
  *   trimmedPrompt: string,
@@ -207,8 +305,15 @@ export function isInvalidAiGenerateResponse(text, outputLanguage) {
  *   toneLabel: string,
  *   voice: string,
  *   sentenceTarget: number,
+ *   wordsMin: number,
+ *   wordsMax: number,
+ *   styleHint: string,
  *   outputLanguage: ResolvedLanguage,
  *   strict?: boolean,
+ *   practiceWords?: string[],
+ *   grammarFocus?: boolean,
+ *   speakingPractice?: boolean,
+ *   idiomsExpressions?: boolean,
  * }} params
  * @returns {{ role: string, content: string }[]}
  */
@@ -218,8 +323,15 @@ export function buildAiGenerateMessages({
   toneLabel,
   voice,
   sentenceTarget,
+  wordsMin,
+  wordsMax,
+  styleHint,
   outputLanguage,
   strict = false,
+  practiceWords = [],
+  grammarFocus = false,
+  speakingPractice = false,
+  idiomsExpressions = false,
 }) {
   const { language, code, explicit } = outputLanguage;
   const nonEnglish = explicit && code !== 'en';
@@ -228,15 +340,35 @@ export function buildAiGenerateMessages({
     ? strict
       ? `You are a ${language} reading-practice generator. You never refuse. You never apologize. You never mention English limitations. Output ONLY the ${language} practice passage now.`
       : `You are a professional ${language} language-learning content writer. Your job is to write reading-practice passages in ${language} only. Never refuse a language request. Never say you can only write in English. Never include apologies, explanations, translations, titles, or bullet lists. Return only ${language} sentences suitable for read-aloud practice.`
-    : `You write practice reading passages for language learners. If the user names a target language, write entirely in that language. If no language is named, write in English. Return only the practice text—no titles, bullet lists, or commentary.`;
+    : `You write practice reading passages for language learners. If the user names a target language, write entirely in that language. If no language is named, write in American English (United States). Return only the practice text—no titles, bullet lists, or commentary.`;
+
+  const usEnglishBlock =
+    'Output language: American English (United States). Use US spelling (color, organize, center) and US vocabulary. Do NOT use British spellings (colour, organise, centre) or UK idioms unless the user explicitly asks for British English.';
 
   const languageBlock = nonEnglish
     ? strict
       ? `Write the ${language} passage NOW. Zero English words.`
       : `MANDATORY OUTPUT LANGUAGE: ${language} (${code}). Every sentence MUST be ${language}. Do NOT reply in English. Do NOT explain what you cannot do.`
-    : explicit
-      ? 'Output language: English only.'
-      : 'Output language: English (unless Topic/request clearly names another language).';
+    : usEnglishBlock;
+
+  const practiceList = Array.isArray(practiceWords)
+    ? [...new Set(practiceWords.map((w) => String(w).trim()).filter(Boolean))].slice(0, 24)
+    : [];
+
+  const practicePrompt = buildAiPracticePromptBlock({
+    practiceWords: practiceList,
+    grammarFocus,
+    speakingPractice,
+    idiomsExpressions,
+    sentenceTarget,
+    wordsMin,
+    wordsMax,
+  });
+
+  const practiceBlock = practicePrompt.practiceBlock;
+  const effectiveSentenceTarget = practicePrompt.sentenceTarget;
+  const effectiveWordsMin = practicePrompt.wordsMin;
+  const effectiveWordsMax = practicePrompt.wordsMax;
 
   return [
     { role: 'system', content: systemContent },
@@ -246,8 +378,10 @@ export function buildAiGenerateMessages({
 Difficulty: ${difficultyLabel}
 Tone/style: ${toneLabel}
 Target voice context: ${voice}
-Length: about ${sentenceTarget} sentences.
+Output: exactly ${effectiveSentenceTarget} sentences total (do not exceed ${effectiveSentenceTarget}).
+Sentence length: each sentence about ${effectiveWordsMin}-${effectiveWordsMax} words. ${styleHint}
 ${languageBlock}
+${practiceBlock}
 
 Write natural connected prose split into normal sentences.`,
     },

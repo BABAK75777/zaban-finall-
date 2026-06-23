@@ -58,9 +58,11 @@ export class MobileAudioPlayer implements AudioPlayer {
     this.playbackRate = clamped;
     const playing = sound != null;
     if (playing && sound != null && typeof sound.setRateAsync === 'function') {
-      void sound.setRateAsync(clamped, true).catch((err) => {
-        console.warn('[MobileAudioPlayer] setRateAsync failed:', err);
-      });
+      void sound
+        .setRateAsync(clamped, true, Audio.PitchCorrectionQuality.High)
+        .catch((err) => {
+          console.warn('[MobileAudioPlayer] setRateAsync failed:', err);
+        });
     }
     console.log(`[PlaybackRate] applied rate=${clamped}`);
     // CHAT2/runtime validation grep (legacy format).
@@ -152,6 +154,14 @@ export class MobileAudioPlayer implements AudioPlayer {
 
         sound = newSound;
         isPaused = false;
+
+        if (playRate !== 1 && typeof newSound.setRateAsync === 'function') {
+          await newSound
+            .setRateAsync(playRate, true, Audio.PitchCorrectionQuality.High)
+            .catch((err) => {
+              console.warn('[MobileAudioPlayer] setRateAsync on play failed:', err);
+            });
+        }
 
         // Set up interruption handlers
         this.setupInterruptionHandlers(sound, requestId, resolve, reject);

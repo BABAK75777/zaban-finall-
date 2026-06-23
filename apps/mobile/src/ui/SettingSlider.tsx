@@ -30,6 +30,8 @@ export interface SettingSliderProps {
   compact?: boolean;
   /** Two-sided sliders (left/right labels) — taller, brighter fill rail. */
   bilateral?: boolean;
+  /** Stable id for automation (hit target). */
+  testID?: string;
 }
 
 export function SettingSlider({
@@ -45,6 +47,7 @@ export function SettingSlider({
   track,
   compact = false,
   bilateral = false,
+  testID,
 }: SettingSliderProps) {
   const [trackWidth, setTrackWidth] = useState(0);
   const [dragValue, setDragValue] = useState<number | null>(null);
@@ -151,6 +154,7 @@ export function SettingSlider({
     >
       <View
         ref={hitAreaRef}
+        testID={testID}
         style={styles.hitArea}
         onLayout={() => {
           syncTrackMetrics();

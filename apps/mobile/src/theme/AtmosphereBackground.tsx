@@ -11,45 +11,15 @@ const STARS = [
   { l: 0.78, t: 0.05, s: 1, o: 0.24 },
 ];
 
-interface SkyPalette {
-  skyTop: string;
-  skyBottom: string;
-  star?: string;
-}
-
-function skyPalette(theme: ThemePalette): SkyPalette {
-  switch (theme.id) {
-    case 'dark':
-      return {
-        skyTop: theme.bg,
-        skyBottom: theme.surface,
-        star: 'rgba(255, 255, 255, 0.3)',
-      };
-    case 'light':
-      return {
-        skyTop: theme.bg,
-        skyBottom: theme.surface,
-      };
-    case 'cream':
-      return {
-        skyTop: theme.bg,
-        skyBottom: theme.surface,
-      };
-  }
-}
-
 interface AtmosphereBackgroundProps {
   theme: ThemePalette;
 }
 
-/** Soft ambient background per theme — no blobs behind the sentence. */
+/** Flat ambient background per theme — uniform color top to bottom. */
 export function AtmosphereBackground({ theme }: AtmosphereBackgroundProps) {
-  const { id } = theme;
-  const palette = useMemo(() => skyPalette(theme), [theme]);
-
   const stars = useMemo(
     () =>
-      id === 'dark'
+      theme.id === 'dark'
         ? STARS.map((s, i) => (
             <View
               key={i}
@@ -61,43 +31,17 @@ export function AtmosphereBackground({ theme }: AtmosphereBackgroundProps) {
                 height: s.s,
                 borderRadius: s.s,
                 opacity: s.o,
-                backgroundColor: palette.star,
+                backgroundColor: 'rgba(255, 255, 255, 0.3)',
               }}
             />
           ))
         : null,
-    [id, palette.star]
+    [theme.id]
   );
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg }]} pointerEvents="none">
-      <View style={[styles.skyFill, { backgroundColor: palette.skyTop }]} />
-
       {stars}
-
-      <View
-        style={[
-          styles.bottomVignette,
-          { backgroundColor: palette.skyBottom, opacity: id === 'dark' ? 0.45 : 0.3 },
-        ]}
-      />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  skyFill: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  bottomVignette: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: H * 0.3,
-  },
-});

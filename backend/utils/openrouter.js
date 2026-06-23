@@ -103,11 +103,11 @@ function resolveVoiceForModel(model, voice) {
   const male = isMaleVoiceToken(voice);
 
   if (model.includes('grok-voice')) {
-    return male ? 'Rex' : 'Eve';
+    return male ? 'Rex' : 'Ara';
   }
 
   if (model.includes('gemini') && model.includes('tts')) {
-    return male ? 'Puck' : 'Kore';
+    return male ? 'Puck' : 'Aoede';
   }
 
   if (model.includes('mai-voice')) {

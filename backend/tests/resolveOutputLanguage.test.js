@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveOutputLanguage,
   buildAiGenerateMessages,
+  resolveAiSentenceLength,
+  AI_GENERATE_SENTENCE_COUNT,
 } from '../utils/resolveOutputLanguage.js';
 
 describe('resolveOutputLanguage', () => {
@@ -42,17 +44,73 @@ describe('resolveOutputLanguage', () => {
 
   it('buildAiGenerateMessages enforces non-English language block', () => {
     const outputLanguage = resolveOutputLanguage('text in German about cats');
+    const length = resolveAiSentenceLength(0.35);
     const messages = buildAiGenerateMessages({
       trimmedPrompt: 'text in German about cats',
       difficultyLabel: 'beginner',
       toneLabel: 'neutral',
       voice: 'female',
-      sentenceTarget: 5,
+      sentenceTarget: AI_GENERATE_SENTENCE_COUNT,
+      wordsMin: length.wordsMin,
+      wordsMax: length.wordsMax,
+      styleHint: length.styleHint,
       outputLanguage,
     });
 
     expect(messages[0].content).toContain('German');
-    expect(messages[0].content).toContain('ONLY');
+    expect(messages[0].content).toContain('German only');
     expect(messages[1].content).toContain('MANDATORY OUTPUT LANGUAGE: German');
+    expect(messages[1].content).toContain(`exactly ${AI_GENERATE_SENTENCE_COUNT} sentences`);
+    expect(messages[1].content).toContain(`${length.wordsMin}-${length.wordsMax} words`);
+  });
+
+  it('buildAiGenerateMessages defaults to American English', () => {
+    const outputLanguage = resolveOutputLanguage('Daily conversation about coffee');
+    const length = resolveAiSentenceLength(0.5);
+    const messages = buildAiGenerateMessages({
+      trimmedPrompt: 'Daily conversation about coffee',
+      difficultyLabel: 'beginner',
+      toneLabel: 'neutral',
+      voice: 'female',
+      sentenceTarget: AI_GENERATE_SENTENCE_COUNT,
+      wordsMin: length.wordsMin,
+      wordsMax: length.wordsMax,
+      styleHint: length.styleHint,
+      outputLanguage,
+    });
+
+    expect(messages[1].content).toContain('American English');
+    expect(messages[1].content).toContain('US spelling');
+    expect(messages[1].content).toContain('exactly 20 sentences');
+  });
+
+  it('resolveAiSentenceLength maps slider to short vs long sentences', () => {
+    const short = resolveAiSentenceLength(0);
+    const long = resolveAiSentenceLength(1);
+    expect(short.wordsMax).toBeLessThan(long.wordsMin);
+    expect(AI_GENERATE_SENTENCE_COUNT).toBe(20);
+  });
+
+  it('includes practice vocabulary in AI user prompt when provided', () => {
+    const outputLanguage = { language: 'English', code: 'en', explicit: false };
+    const length = resolveAiSentenceLength(0.35);
+    const messages = buildAiGenerateMessages({
+      trimmedPrompt: 'Travel',
+      difficultyLabel: 'beginner',
+      toneLabel: 'neutral',
+      voice: 'female',
+      sentenceTarget: AI_GENERATE_SENTENCE_COUNT,
+      wordsMin: length.wordsMin,
+      wordsMax: length.wordsMax,
+      styleHint: length.styleHint,
+      outputLanguage,
+      practiceWords: ['airport', 'ticket'],
+    });
+
+    expect(messages[1].content).toContain('airport');
+    expect(messages[1].content).toContain('ticket');
+    expect(messages[1].content).toContain('Vocabulary practice');
+    expect(messages[1].content).toContain('at least three times');
+    expect(messages[1].content).toContain('at least 3 generated texts');
   });
 });

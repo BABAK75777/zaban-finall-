@@ -1,0 +1,77 @@
+# Run:        maestro test .maestro/reading.yaml
+# Small phone: maestro test .maestro/reading.yaml --device <small-device-id>   # iPhone SE or small AVD
+appId: com.zaban.tts
+---
+- launchApp
+
+# Responsive core: dock and all bottom controls visible without scrolling
+- assertVisible:
+    id: "reading-controls-dock"
+- assertVisible:
+    id: "reading-menu"
+- assertVisible:
+    id: "reading-hero-sentence"
+- assertVisible:
+    id: "reading-shadow"
+- assertVisible:
+    id: "reading-back"
+- assertVisible:
+    id: "reading-hear-ai"
+- assertVisible:
+    id: "reading-next"
+
+# Main path: practice text entry through Ready state
+- tapOn:
+    id: "reading-menu"
+- assertVisible:
+    id: "reading-settings-panel"
+- tapOn:
+    id: "reading-settings-edit-text"
+- assertVisible:
+    id: "reading-practice-text"
+- tapOn:
+    id: "reading-practice-text-input"
+- inputText: "Hello world."
+- hideKeyboard
+- tapOn:
+    id: "reading-practice-text-close"
+- assertVisible:
+    id: "reading-status-hint"
+    text: "Ready — 1 of 1."
+
+# Settings: panel open and top tile visible (no scroll required)
+- tapOn:
+    id: "reading-menu"
+- assertVisible:
+    id: "reading-settings-panel"
+- assertVisible:
+    id: "reading-settings-edit-text"
+
+# AI modal
+- tapOn:
+    id: "reading-settings-ai"
+- assertVisible:
+    id: "reading-ai-modal"
+- assertVisible:
+    id: "reading-ai-prompt-input"
+- tapOn:
+    id: "reading-ai-modal-close"
+
+# Long settings list: scroll to bottom tile (scrollability check)
+- scrollUntilVisible:
+    element:
+      id: "reading-theme-dark"
+    direction: DOWN
+
+# Close settings
+- tapOn:
+    id: "reading-settings-close"
+- assertNotVisible:
+    id: "reading-settings-panel"
+
+# Optional: AI playback — requires active backend in backend/
+# - tapOn:
+#     id: "reading-hear-ai"
+# - assertVisible:
+#     id: "reading-status-hint"
+#     text: "Playing 1 of 1"

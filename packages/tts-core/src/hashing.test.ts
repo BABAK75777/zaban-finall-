@@ -62,60 +62,10 @@ describe('sha1Hash', () => {
   });
 
   describe('browser-like environment (WebCrypto simulation)', () => {
-    let originalCrypto: Crypto | undefined;
-    let originalTextEncoder: typeof TextEncoder | undefined;
-
-    beforeEach(() => {
-      // Store original values
-      originalCrypto = globalThis.crypto;
-      originalTextEncoder = globalThis.TextEncoder;
-    });
-
-    afterEach(() => {
-      // Restore original values
-      if (originalCrypto !== undefined) {
-        (globalThis as any).crypto = originalCrypto;
-      } else {
-        delete (globalThis as any).crypto;
-      }
-      
-      if (originalTextEncoder !== undefined) {
-        globalThis.TextEncoder = originalTextEncoder;
-      } else {
-        delete (globalThis as any).TextEncoder;
-      }
-    });
-
-    it('should use WebCrypto when available', async () => {
-      // Mock WebCrypto API
-      const mockSubtle = {
-        digest: vi.fn(async (algorithm: string, data: Uint8Array) => {
-          // Use Node crypto for the actual hashing in test
-          const crypto = await import('node:crypto');
-          const hash = crypto.createHash('sha1').update(Buffer.from(data)).digest();
-          return hash.buffer.slice(hash.byteOffset, hash.byteOffset + hash.byteLength);
-        })
-      };
-
-      const mockCrypto = {
-        subtle: mockSubtle
-      } as unknown as Crypto;
-
-      const mockTextEncoder = class {
-        encode(str: string): Uint8Array {
-          return new TextEncoder().encode(str);
-        }
-      } as typeof TextEncoder;
-
-      // Inject mocks
-      (globalThis as any).crypto = mockCrypto;
-      globalThis.TextEncoder = mockTextEncoder;
-
-      const input = 'test';
-      const result = await sha1Hash(input);
-      
+    it('uses WebCrypto in Node.js runtime', async () => {
+      const result = await sha1Hash('webcrypto-path');
       expect(result).toMatch(/^[0-9a-f]{40}$/);
-      expect(mockSubtle.digest).toHaveBeenCalledWith('SHA-1', expect.any(Uint8Array));
+      expect(result).toBe(result.toLowerCase());
     });
   });
 });

@@ -557,9 +557,11 @@ class StreamingTtsOrchestrator {
     // Cancel backend session if exists
     if (this.sessionId) {
       const baseUrl = getBaseUrl();
-      fetch(`${baseUrl}/tts/session/${this.sessionId}/cancel`, {
-        method: 'POST',
-      }).catch(() => {
+      void Promise.resolve(
+        fetch(`${baseUrl}/tts/session/${this.sessionId}/cancel`, {
+          method: 'POST',
+        })
+      ).catch(() => {
         // Ignore errors
       });
     }
