@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import type { ThemePalette } from '../theme/themeTypes';
 import type { DictionaryEntry, DictionarySettingsV1 } from '../dictionary';
 import { DictionaryLanguagePicker } from './DictionaryLanguagePicker';
 import { DictionarySettingsSection } from './DictionarySettingsSection';
+import { FullScreenModalShell } from './FullScreenModalShell';
 import { READING_TEST_IDS } from './testIds';
+import { space } from './spacing';
 
 type Props = {
   visible: boolean;
@@ -25,42 +27,33 @@ export function DictionarySettingsModal({
   onChange,
   onEntriesChange,
 }: Props) {
-  const colors = theme;
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
 
   return (
     <>
-      <Modal
+      <FullScreenModalShell
         visible={visible}
-        animationType="slide"
-        transparent
-        onRequestClose={onClose}
+        onClose={onClose}
+        theme={theme}
+        title="Dictionary"
         testID={READING_TEST_IDS.settingsDictionaryModal}
+        closeTestID={READING_TEST_IDS.settingsDictionaryClose}
       >
-        <View style={styles.backdrop}>
-          <View style={[styles.sheet, { backgroundColor: colors.bg }]}>
-            <View style={[styles.header, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.title, { color: colors.text }]}>Dictionary</Text>
-              <Pressable onPress={onClose} style={styles.closeBtn} testID={READING_TEST_IDS.settingsDictionaryClose}>
-                <Text style={[styles.closeText, { color: colors.accent }]}>Done</Text>
-              </Pressable>
-            </View>
-            <ScrollView
-              style={styles.scroll}
-              contentContainerStyle={styles.scrollContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              <DictionarySettingsSection
-                theme={theme}
-                settings={settings}
-                entries={entries}
-                onEntriesChange={onEntriesChange}
-                onOpenLanguagePicker={() => setLanguagePickerOpen(true)}
-              />
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <DictionarySettingsSection
+            theme={theme}
+            settings={settings}
+            entries={entries}
+            onEntriesChange={onEntriesChange}
+            onOpenLanguagePicker={() => setLanguagePickerOpen(true)}
+          />
+        </ScrollView>
+      </FullScreenModalShell>
 
       <DictionaryLanguagePicker
         visible={visible && languagePickerOpen}
@@ -74,42 +67,8 @@ export function DictionarySettingsModal({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    maxHeight: '88%',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    overflow: 'hidden',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  closeBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-  },
-  closeText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  scroll: {
-    flexGrow: 0,
-  },
+  scroll: { flex: 1 },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 28,
+    paddingBottom: space.xxl,
   },
 });

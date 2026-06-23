@@ -13,6 +13,7 @@ import {
   Alert,
   Animated,
   AppState,
+  InteractionManager,
   Modal,
   PermissionsAndroid,
   Platform,
@@ -20,7 +21,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -68,6 +68,8 @@ import { ActionCluster } from '../src/ui/ActionCluster';
 import { AdBanner } from '../src/components/AdBanner';
 import { TappableHeroSentence } from '../src/ui/TappableHeroSentence';
 import { DictionarySettingsModal } from '../src/ui/DictionarySettingsModal';
+import { PhotoSourceModal } from '../src/ui/PhotoSourceModal';
+import { PracticeTextModal } from '../src/ui/PracticeTextModal';
 import { WordLookupSheet } from '../src/ui/WordLookupSheet';
 import { NavPills } from '../src/ui/NavPills';
 import { AiPromptModal, type AiVoiceType } from '../src/ui/AiPromptModal';
@@ -373,6 +375,7 @@ export default function ReadingScreen() {
   const [showSettings, setShowSettings] = useState(false);
   const [showAiPrompt, setShowAiPrompt] = useState(false);
   const [showDictionarySettings, setShowDictionarySettings] = useState(false);
+  const [showPhotoSource, setShowPhotoSource] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
   const { themeId, theme, setTheme, resetTheme } = useTheme();
   const [aiSpeed, setAiSpeed] = useState(DEFAULT_AI_SPEED);
@@ -396,6 +399,11 @@ export default function ReadingScreen() {
     () => getPracticeWordsForAi(dictionaryEntries),
     [dictionaryEntries]
   );
+  const appVersionLabel = useMemo(() => {
+    const version = Constants.expoConfig?.version ?? '1.8.0';
+    const short = version.replace(/(\.0)+$/, '');
+    return `v${short}`;
+  }, []);
   const [wordLookupVisible, setWordLookupVisible] = useState(false);
   const [wordLookupLoading, setWordLookupLoading] = useState(false);
   const [wordLookupError, setWordLookupError] = useState<string | null>(null);
@@ -1111,10 +1119,20 @@ export default function ReadingScreen() {
     setStatusDetail('Settings reset to defaults.');
   }, [resetTheme, syncSentencesFromText]);
 
-  const handleWritePress = useCallback(() => {
+  const openAfterSettings = useCallback((open: () => void) => {
+    if (!showSettings) {
+      open();
+      return;
+    }
     setShowSettings(false);
-    setShowTextInput(true);
-  }, []);
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(open, Platform.OS === 'android' ? 150 : 16);
+    });
+  }, [showSettings]);
+
+  const handleWritePress = useCallback(() => {
+    openAfterSettings(() => setShowTextInput(true));
+  }, [openAfterSettings]);
 
   const toggleTextInput = useCallback(() => {
     if (showTextInput) {
@@ -1167,6 +1185,7 @@ export default function ReadingScreen() {
               mediaTypes: ImagePicker.MediaTypeOptions.Images,
               quality: 0.85,
               base64: true,
+              ...(Platform.OS === 'ios' ? { allowsEditing: true } : {}),
             })
           : await ImagePicker.launchCameraAsync({
               mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -1200,15 +1219,22 @@ export default function ReadingScreen() {
     [handleTextChange, ocrLoading, persistReadingSession, syncSentencesFromText]
   );
 
-  const handlePhotoOcrFromAlbum = useCallback(
-    () => void handlePhotoOcr('library'),
-    [handlePhotoOcr]
-  );
+  const openPhotoSource = useCallback(() => {
+    if (ocrLoading) return;
+    openAfterSettings(() => setShowPhotoSource(true));
+  }, [ocrLoading, openAfterSettings]);
 
-  const handlePhotoOcrFromCamera = useCallback(
-    () => void handlePhotoOcr('camera'),
-    [handlePhotoOcr]
-  );
+  const handleAlbumPhotoPress = useCallback(() => openPhotoSource(), [openPhotoSource]);
+
+  const handlePhotoLibraryPick = useCallback(() => {
+    setShowPhotoSource(false);
+    void handlePhotoOcr('library');
+  }, [handlePhotoOcr]);
+
+  const handlePhotoCameraPick = useCallback(() => {
+    setShowPhotoSource(false);
+    void handlePhotoOcr('camera');
+  }, [handlePhotoOcr]);
 
   const handleWordPress = useCallback(
     (lookup: string, displayWord: string) => {
@@ -1662,8 +1688,8 @@ export default function ReadingScreen() {
           <TopAmbientBar
             theme={theme}
             onMenuPress={() => setShowSettings(true)}
-            onAlbumPress={handlePhotoOcrFromAlbum}
-            onCameraPress={handlePhotoOcrFromCamera}
+            onAlbumPress={handleAlbumPhotoPress}
+            onDicPress={() => setShowDictionarySettings(true)}
             photoLoading={ocrLoading}
           />
 
@@ -1684,7 +1710,15 @@ export default function ReadingScreen() {
                   scrollEnabled={settingsScrollEnabled}
                 >
                   <View style={styles.settingsHeader}>
-                    <Text style={[styles.settingsTitle, { color: colors.textDim }]}>Settings</Text>
+                    <View style={styles.settingsTitleRow}>
+                      <Text style={[styles.settingsTitle, { color: colors.textDim }]}>Settings</Text>
+                      <Text
+                        style={[styles.settingsVersion, { color: colors.textMuted }]}
+                        testID={READING_TEST_IDS.settingsVersion}
+                      >
+                        {appVersionLabel}
+                      </Text>
+                    </View>
                     <Pressable
                       onPress={() => setShowSettings(false)}
                       hitSlop={8}
@@ -1731,15 +1765,19 @@ export default function ReadingScreen() {
                             pressed && { opacity: 0.85 },
                             ocrLoading && { opacity: 0.6 },
                           ]}
-                          onPress={handlePhotoOcrFromAlbum}
+                          onPress={handleAlbumPhotoPress}
                           disabled={ocrLoading}
                           accessibilityRole="button"
                           accessibilityLabel="Choose photo from album"
                           testID={READING_TEST_IDS.settingsAlbum}
                         >
-                          <Text style={styles.settingsTileCompactIcon}>🖼️</Text>
+                          {ocrLoading ? (
+                            <ActivityIndicator size="small" color={colors.accent} />
+                          ) : (
+                            <Text style={styles.settingsTileCompactIcon}>🖼️</Text>
+                          )}
                           <Text style={[styles.settingsTileCompactLabel, { color: colors.textMuted }]}>
-                            Album
+                            {ocrLoading ? 'Reading…' : 'Album'}
                           </Text>
                         </Pressable>
                       </View>
@@ -1751,8 +1789,7 @@ export default function ReadingScreen() {
                             pressed && { opacity: 0.85 },
                           ]}
                           onPress={() => {
-                            setShowSettings(false);
-                            setShowAiPrompt(true);
+                            openAfterSettings(() => setShowAiPrompt(true));
                           }}
                           accessibilityRole="button"
                           accessibilityLabel="AI"
@@ -1768,33 +1805,10 @@ export default function ReadingScreen() {
                             styles.settingsTileCompact,
                             { borderColor: colors.border, backgroundColor: colors.bg },
                             pressed && { opacity: 0.85 },
-                            ocrLoading && { opacity: 0.6 },
                           ]}
-                          onPress={handlePhotoOcrFromCamera}
-                          disabled={ocrLoading}
-                          accessibilityRole="button"
-                          accessibilityLabel="Take photo with camera"
-                          testID={READING_TEST_IDS.settingsCamera}
-                        >
-                          {ocrLoading ? (
-                            <ActivityIndicator size="small" color={colors.accent} />
-                          ) : (
-                            <Text style={styles.settingsTileCompactIcon}>📷</Text>
-                          )}
-                          <Text style={[styles.settingsTileCompactLabel, { color: colors.textMuted }]}>
-                            {ocrLoading ? 'Reading…' : 'Camera'}
-                          </Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                    <View style={styles.settingsDicRow}>
-                      <Pressable
-                          style={({ pressed }) => [
-                            styles.settingsTileCompact,
-                            { borderColor: colors.border, backgroundColor: colors.bg },
-                            pressed && { opacity: 0.85 },
-                          ]}
-                          onPress={() => setShowDictionarySettings(true)}
+                          onPress={() => {
+                            openAfterSettings(() => setShowDictionarySettings(true));
+                          }}
                           accessibilityRole="button"
                           accessibilityLabel="Dictionary"
                           testID={READING_TEST_IDS.settingsDic}
@@ -1804,6 +1818,7 @@ export default function ReadingScreen() {
                             Dic
                           </Text>
                         </Pressable>
+                      </View>
                     </View>
                   </View>
 
@@ -1914,92 +1929,6 @@ export default function ReadingScreen() {
             </Pressable>
           </Modal>
 
-          <DictionarySettingsModal
-            visible={showDictionarySettings}
-            onClose={() => setShowDictionarySettings(false)}
-            theme={theme}
-            settings={dictionarySettings}
-            entries={dictionaryEntries}
-            onChange={handleDictionarySettingsChange}
-            onEntriesChange={handleDictionaryEntriesChange}
-          />
-
-          <AiPromptModal
-            visible={showAiPrompt}
-            onClose={() => setShowAiPrompt(false)}
-            onGenerated={handleAiGenerated}
-            apiBaseUrl={API_BASE_URL}
-            theme={theme}
-            themeId={themeId}
-            practiceWords={aiPracticeWords}
-            useDictionaryInAi={
-              dictionarySettings.useDictionaryInAi && aiPracticeWords.length > 0
-            }
-          />
-
-          <WordLookupSheet
-            visible={wordLookupVisible}
-            theme={theme}
-            displayWord={wordLookupDisplay}
-            targetLanguage={dictionarySettings.translationLanguage}
-            meaning={wordLookupMeaning}
-            partOfSpeech={wordLookupPartOfSpeech}
-            loading={wordLookupLoading}
-            error={wordLookupError}
-            savedToDictionary={wordLookupSaved}
-            textAppearanceCount={wordLookupAppearanceCount}
-            lookupCount={wordLookupCount}
-            canToggleSave={Boolean(wordLookupMeaning) && !wordLookupLoading && !wordLookupError}
-            onClose={() => setWordLookupVisible(false)}
-            onToggleSave={handleWordLookupToggleSave}
-          />
-
-          {showTextInput ? (
-            <View style={[styles.textInputWrap, { marginHorizontal: layout.textInputMarginH }]} testID={READING_TEST_IDS.practiceText}>
-              <Text style={[styles.textInputLabel, { color: colors.textDim }]}>Practice text</Text>
-              <View
-                style={[
-                  styles.textInputCard,
-                  { backgroundColor: colors.inputBg, borderColor: colors.inputBorder },
-                ]}
-              >
-                <Pressable
-                  onPress={dismissPracticeTextInput}
-                  hitSlop={10}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close practice text"
-                  testID={READING_TEST_IDS.practiceTextClose}
-                  style={({ pressed }) => [
-                    styles.textInputClose,
-                    pressed && { opacity: 0.75 },
-                  ]}
-                >
-                  <Text style={[styles.textInputCloseLabel, { color: colors.textMuted }]}>✕</Text>
-                </Pressable>
-                <TextInput
-                  style={[
-                    styles.textInput,
-                    {
-                      color: colors.inputText,
-                    },
-                  ]}
-                  multiline
-                  placeholder="Paste reading text…"
-                  placeholderTextColor={colors.inputPlaceholder}
-                  cursorColor={colors.inputText}
-                  selectionColor={colors.accentSoft}
-                  keyboardAppearance={themeId === 'light' || themeId === 'cream' ? 'light' : 'dark'}
-                  underlineColorAndroid="transparent"
-                  value={text}
-                  onChangeText={handleTextChange}
-                  editable={!busy}
-                  onBlur={() => commitReadingText()}
-                  testID={READING_TEST_IDS.practiceTextInput}
-                />
-              </View>
-            </View>
-          ) : null}
-
           <TappableHeroSentence
             theme={theme}
             text={currentSentence}
@@ -2066,6 +1995,66 @@ export default function ReadingScreen() {
         </Animated.View>
         <AdBanner backgroundColor={colors.bg} />
       </SafeAreaView>
+
+      <PracticeTextModal
+        visible={showTextInput}
+        onClose={dismissPracticeTextInput}
+        theme={theme}
+        themeId={themeId}
+        text={text}
+        onChangeText={handleTextChange}
+        onBlurCommit={commitReadingText}
+        editable={!busy}
+      />
+
+      <PhotoSourceModal
+        visible={showPhotoSource}
+        onClose={() => setShowPhotoSource(false)}
+        theme={theme}
+        onPickLibrary={handlePhotoLibraryPick}
+        onPickCamera={handlePhotoCameraPick}
+        loading={ocrLoading}
+      />
+
+      <DictionarySettingsModal
+        visible={showDictionarySettings}
+        onClose={() => setShowDictionarySettings(false)}
+        theme={theme}
+        settings={dictionarySettings}
+        entries={dictionaryEntries}
+        onChange={handleDictionarySettingsChange}
+        onEntriesChange={handleDictionaryEntriesChange}
+      />
+
+      <AiPromptModal
+        visible={showAiPrompt}
+        onClose={() => setShowAiPrompt(false)}
+        onGenerated={handleAiGenerated}
+        apiBaseUrl={API_BASE_URL}
+        theme={theme}
+        themeId={themeId}
+        practiceWords={aiPracticeWords}
+        useDictionaryInAi={
+          dictionarySettings.useDictionaryInAi && aiPracticeWords.length > 0
+        }
+      />
+
+      <WordLookupSheet
+        visible={wordLookupVisible}
+        theme={theme}
+        displayWord={wordLookupDisplay}
+        targetLanguage={dictionarySettings.translationLanguage}
+        meaning={wordLookupMeaning}
+        partOfSpeech={wordLookupPartOfSpeech}
+        loading={wordLookupLoading}
+        error={wordLookupError}
+        savedToDictionary={wordLookupSaved}
+        textAppearanceCount={wordLookupAppearanceCount}
+        lookupCount={wordLookupCount}
+        canToggleSave={Boolean(wordLookupMeaning) && !wordLookupLoading && !wordLookupError}
+        onClose={() => setWordLookupVisible(false)}
+        onToggleSave={handleWordLookupToggleSave}
+      />
     </>
   );
 }
@@ -2096,11 +2085,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  settingsTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    flexShrink: 1,
+  },
   settingsTitle: {
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 2,
     textTransform: 'uppercase',
+  },
+  settingsVersion: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.4,
   },
   settingsClose: { fontSize: 18, padding: 4 },
   settingsGrid: {
@@ -2127,9 +2127,6 @@ const styles = StyleSheet.create({
     flex: 1,
     maxWidth: 120,
     gap: 8,
-  },
-  settingsDicRow: {
-    alignItems: 'center',
   },
   settingsTileCompact: {
     flex: 1,

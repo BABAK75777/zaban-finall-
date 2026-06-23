@@ -50,7 +50,7 @@ function renderReadingControls(width: number) {
             theme={theme}
             onMenuPress={() => {}}
             onAlbumPress={() => {}}
-            onCameraPress={() => {}}
+            onDicPress={() => {}}
           />
           <HeroSentence
             theme={theme}
@@ -89,8 +89,6 @@ describe('reading screen layout', () => {
     it(`renders primary testIDs at ${width}px`, () => {      const screen = renderReadingControls(width);
 
       expect(screen.getByTestId(READING_TEST_IDS.menu)).toBeTruthy();
-      expect(screen.getByTestId(READING_TEST_IDS.topAlbum)).toBeTruthy();
-      expect(screen.getByTestId(READING_TEST_IDS.topCamera)).toBeTruthy();
       expect(screen.getByTestId(READING_TEST_IDS.heroSentence)).toBeTruthy();
       expect(screen.getByTestId(READING_TEST_IDS.shadow)).toBeTruthy();
       expect(screen.getByTestId(READING_TEST_IDS.back)).toBeTruthy();

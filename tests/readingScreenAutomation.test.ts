@@ -31,9 +31,8 @@ describe('reading screen testIDs', () => {
     expect(READING_TEST_IDS.settingsAi).toBe('reading-settings-ai');
     expect(READING_TEST_IDS.settingsDic).toBe('reading-settings-dic');
     expect(READING_TEST_IDS.settingsAlbum).toBe('reading-settings-album');
-    expect(READING_TEST_IDS.settingsCamera).toBe('reading-settings-camera');
     expect(READING_TEST_IDS.topAlbum).toBe('reading-top-album');
-    expect(READING_TEST_IDS.topCamera).toBe('reading-top-camera');
+    expect(READING_TEST_IDS.topDic).toBe('reading-top-dic');
     expect(READING_TEST_IDS.settingsDictionaryModal).toBe('reading-settings-dictionary-modal');
   });
 });
