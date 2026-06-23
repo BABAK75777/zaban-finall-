@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-  resolveOutputLanguage,
   buildAiGenerateMessages,
+  buildAiPracticePromptBlock,
   resolveAiSentenceLength,
+  resolveOutputLanguage,
   AI_GENERATE_SENTENCE_COUNT,
+  AI_PRACTICE_LENGTH_BOOST_RATIO,
 } from '../utils/resolveOutputLanguage.js';
 
 describe('resolveOutputLanguage', () => {
@@ -110,7 +112,43 @@ describe('resolveOutputLanguage', () => {
     expect(messages[1].content).toContain('airport');
     expect(messages[1].content).toContain('ticket');
     expect(messages[1].content).toContain('Vocabulary practice');
-    expect(messages[1].content).toContain('at least three times');
-    expect(messages[1].content).toContain('at least 3 generated texts');
+    expect(messages[1].content).toContain('at least 3 distinct sentences');
+    expect(messages[1].content).toContain('4–6 times');
+    expect(messages[1].content).toContain('10% extra length');
+    expect(messages[1].content).toContain('exactly 22 sentences');
+  });
+
+  it('adds grammar and speaking hints when practice words and toggles are on', () => {
+    const outputLanguage = { language: 'English', code: 'en', explicit: false };
+    const length = resolveAiSentenceLength(0.35);
+    const messages = buildAiGenerateMessages({
+      trimmedPrompt: 'Travel',
+      difficultyLabel: 'beginner',
+      toneLabel: 'neutral',
+      voice: 'female',
+      sentenceTarget: AI_GENERATE_SENTENCE_COUNT,
+      wordsMin: length.wordsMin,
+      wordsMax: length.wordsMax,
+      styleHint: length.styleHint,
+      outputLanguage,
+      practiceWords: ['airport'],
+      grammarFocus: true,
+      speakingPractice: true,
+    });
+
+    expect(messages[1].content).toContain('grammatical forms');
+    expect(messages[1].content).toContain('spoken contexts');
+  });
+
+  it('buildAiPracticePromptBlock boosts length by up to 10%', () => {
+    const boosted = buildAiPracticePromptBlock({
+      practiceWords: ['run'],
+      sentenceTarget: 20,
+      wordsMin: 10,
+      wordsMax: 20,
+    });
+    expect(boosted.sentenceTarget).toBe(22);
+    expect(boosted.wordsMax).toBe(Math.round(20 * (1 + AI_PRACTICE_LENGTH_BOOST_RATIO)));
+    expect(boosted.practiceBlock).toContain('run');
   });
 });

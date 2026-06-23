@@ -60,6 +60,13 @@ export interface AiGeneratePayload {
   textLength: number;
   targetLanguage?: string;
   practiceWords?: string[];
+  grammarFocus?: boolean;
+  speakingPractice?: boolean;
+  idiomsExpressions?: boolean;
+}
+
+export interface AiGeneratedMeta {
+  practiceWords?: string[];
 }
 
 interface AiGenerateResponse {
@@ -98,7 +105,7 @@ async function requestAiGenerate(apiBaseUrl: string, payload: AiGeneratePayload)
 interface AiPromptModalProps {
   visible: boolean;
   onClose: () => void;
-  onGenerated: (text: string) => void;
+  onGenerated: (text: string, meta?: AiGeneratedMeta) => void;
   apiBaseUrl: string;
   theme: ThemePalette;
   themeId: ThemeId;
@@ -250,17 +257,19 @@ export function AiPromptModal({
     }
 
     const outputLanguage = resolveOutputLanguage(prompt);
+    const includePractice = useDictionaryInAi && practiceWords.length > 0;
     const payload: AiGeneratePayload = {
       prompt,
       difficulty: settings.difficulty,
       tone: settings.tone,
       textLength: settings.textLength,
+      grammarFocus: settings.grammarFocus,
+      speakingPractice: settings.speakingPractice,
+      idiomsExpressions: settings.idiomsExpressions,
       ...(outputLanguage.explicit && outputLanguage.code !== 'en'
         ? { targetLanguage: outputLanguage.code }
         : {}),
-      ...(useDictionaryInAi && practiceWords.length > 0
-        ? { practiceWords }
-        : {}),
+      ...(includePractice ? { practiceWords } : {}),
     };
 
     generateInFlightRef.current = true;
@@ -269,7 +278,10 @@ export function AiPromptModal({
 
     try {
       const generatedText = await requestAiGenerate(apiBaseUrl, payload);
-      onGenerated(generatedText);
+      onGenerated(
+        generatedText,
+        includePractice ? { practiceWords: [...practiceWords] } : undefined
+      );
       onClose();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Generation failed.';

@@ -93,6 +93,7 @@ import {
   loadDictionaryStore,
   recordWordInReadingText,
   removeDictionaryEntry,
+  removePracticeWordsUsedInAiText,
   requestWordLookup,
   saveDictionaryStore,
   updateDictionarySettings,
@@ -391,6 +392,10 @@ export default function ReadingScreen() {
   );
   const [dictionaryEntries, setDictionaryEntries] = useState<DictionaryEntry[]>([]);
   const dictionaryEntriesRef = useRef<DictionaryEntry[]>([]);
+  const aiPracticeWords = useMemo(
+    () => getPracticeWordsForAi(dictionaryEntries),
+    [dictionaryEntries]
+  );
   const [wordLookupVisible, setWordLookupVisible] = useState(false);
   const [wordLookupLoading, setWordLookupLoading] = useState(false);
   const [wordLookupError, setWordLookupError] = useState<string | null>(null);
@@ -1307,15 +1312,34 @@ export default function ReadingScreen() {
   ]);
 
   const handleAiGenerated = useCallback(
-    (generatedText: string) => {
+    (generatedText: string, meta?: { practiceWords?: string[] }) => {
       cancelPlayback();
       handleTextChange(generatedText);
       syncSentencesFromText(generatedText, readUnitRef.current, true);
       setShowAiPrompt(false);
       setShowSettings(false);
+
+      const practiced = meta?.practiceWords ?? [];
+      if (practiced.length > 0) {
+        const nextEntries = removePracticeWordsUsedInAiText(
+          dictionaryEntriesRef.current,
+          generatedText,
+          practiced
+        );
+        if (nextEntries.length !== dictionaryEntriesRef.current.length) {
+          handleDictionaryEntriesChange(nextEntries);
+        }
+      }
+
       void persistReadingSession();
     },
-    [cancelPlayback, handleTextChange, persistReadingSession, syncSentencesFromText]
+    [
+      cancelPlayback,
+      handleDictionaryEntriesChange,
+      handleTextChange,
+      persistReadingSession,
+      syncSentencesFromText,
+    ]
   );
 
   const dismissPracticeTextInput = useCallback(() => {
@@ -1907,8 +1931,10 @@ export default function ReadingScreen() {
             apiBaseUrl={API_BASE_URL}
             theme={theme}
             themeId={themeId}
-            practiceWords={getPracticeWordsForAi(dictionaryEntries)}
-            useDictionaryInAi={getPracticeWordsForAi(dictionaryEntries).length > 0}
+            practiceWords={aiPracticeWords}
+            useDictionaryInAi={
+              dictionarySettings.useDictionaryInAi && aiPracticeWords.length > 0
+            }
           />
 
           <WordLookupSheet

@@ -5,6 +5,8 @@ import {
   incrementLookupCount,
   recordWordInReadingText,
   removeDictionaryEntry,
+  removePracticeWordsUsedInAiText,
+  shouldRemoveWordAfterAiPractice,
   upsertDictionaryEntry,
 } from '../src/dictionary/dictionaryStorage';
 import type { DictionaryEntry } from '../src/dictionary/dictionaryTypes';
@@ -61,6 +63,21 @@ describe('dictionaryStorage helpers', () => {
       { ...baseEntry('needs'), textAppearanceCount: 1 },
     ];
     expect(getPracticeWordsForAi(entries)).toEqual(['needs', 'done']);
+  });
+
+  it('detects when a practice word met AI thresholds', () => {
+    const text =
+      'The airport was busy today. I went to the airport again after lunch. My friend met me at the airport gate. We waited near the airport lounge until boarding.';
+    expect(shouldRemoveWordAfterAiPractice('airport', text)).toBe(true);
+    expect(shouldRemoveWordAfterAiPractice('ticket', text)).toBe(false);
+  });
+
+  it('removes practiced words from saved list after AI generation', () => {
+    const entries = [baseEntry('airport'), baseEntry('ticket')];
+    const text =
+      'The airport was busy today. I went to the airport again after lunch. My friend met me at the airport gate. We waited near the airport lounge until boarding.';
+    const next = removePracticeWordsUsedInAiText(entries, text, ['airport', 'ticket']);
+    expect(next.map((e) => e.word)).toEqual(['ticket']);
   });
 
   it('increments lookup count for saved entries', () => {

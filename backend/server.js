@@ -1885,7 +1885,7 @@ app.post('/ai/generate', async (req, res) => {
       });
     }
 
-    const { prompt, difficulty, tone, textLength, voiceType, targetLanguage, practiceWords } =
+    const { prompt, difficulty, tone, textLength, voiceType, targetLanguage, practiceWords, grammarFocus, speakingPractice, idiomsExpressions } =
       req.body ?? {};
 
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
@@ -1937,6 +1937,9 @@ app.post('/ai/generate', async (req, res) => {
       styleHint,
       outputLanguage,
       practiceWords: Array.isArray(practiceWords) ? practiceWords : [],
+      grammarFocus: Boolean(grammarFocus),
+      speakingPractice: Boolean(speakingPractice),
+      idiomsExpressions: Boolean(idiomsExpressions),
     };
 
     let text = '';
