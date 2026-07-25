@@ -1,14 +1,21 @@
 import '../src/polyfills/urlPolyfill';
+
 import { useFonts, PlayfairDisplay_600SemiBold } from '@expo-google-fonts/playfair-display';
 import { Inter_400Regular, Inter_600SemiBold } from '@expo-google-fonts/inter';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import React, { Component, type ReactNode, useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import React, { Component, type ReactNode, useEffect, useRef, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { resolveAppBoot } from '../src/boot/appBoot';
+import { InitialRouteGate } from '../src/boot/InitialRouteGate';
 import { FontReadyContext } from '../src/theme/FontReadyContext';
 import { areAdsEnabled } from '../src/config/adMob';
+import { refreshAdsConsent } from '../src/ads/adsConsent';
 import { initializeAdMob } from '../src/ads/initializeAdMob';
+import { AppUpdatePromptHost } from '../src/update/AppUpdatePromptHost';
+import { SPLASH_READY_TIMEOUT_MS } from '../src/splash/splashLayout';
 
 const greatVibesFont = require('../assets/fonts/GreatVibes-Regular.ttf');
 
@@ -37,7 +44,8 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundary
 }
 
 export default function RootLayout() {
-  const [showBoot, setShowBoot] = useState(true);
+  const [bootReady, setBootReady] = useState(false);
+  const bootStartedAtRef = useRef(Date.now());
   const [fontsLoaded, fontError] = useFonts({
     PlayfairDisplay_600SemiBold,
     GreatVibes_400Regular: greatVibesFont,
@@ -46,81 +54,106 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      setShowBoot(false);
-      SplashScreen.hideAsync().catch(() => {});
-    }, 800);
-    return () => clearTimeout(timeout);
-  }, []);
+    let cancelled = false;
+    const startedAt = bootStartedAtRef.current;
+
+    const evaluate = async () => {
+      const elapsedMs = Date.now() - startedAt;
+      const result = await resolveAppBoot({
+        fontsLoaded,
+        fontError,
+        elapsedMs,
+      });
+      if (!cancelled && result.ready) {
+        setBootReady(true);
+      }
+    };
+
+    void evaluate();
+
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) {
+        if (__DEV__) {
+          console.log('[Boot] splash safety timeout reached');
+        }
+        setBootReady(true);
+      }
+    }, SPLASH_READY_TIMEOUT_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(safetyTimer);
+    };
+  }, [fontsLoaded, fontError]);
 
   useEffect(() => {
-    if (fontsLoaded || fontError) {
-      setShowBoot(false);
-      SplashScreen.hideAsync().catch(() => {});
+    if (bootReady) {
+      void SplashScreen.hideAsync().catch(() => {});
     }
-  }, [fontsLoaded, fontError]);
+  }, [bootReady]);
 
   useEffect(() => {
     if (!areAdsEnabled()) {
       return;
     }
-    void initializeAdMob();
+    void refreshAdsConsent().then((snapshot) => {
+      if (snapshot.consentAllowsAds) {
+        void initializeAdMob();
+      }
+    });
   }, []);
 
+  if (!bootReady) {
+    return null;
+  }
+
   return (
-    <RootErrorBoundary>
-      <FontReadyContext.Provider value={fontsLoaded}>
-        <StatusBar style="auto" />
-        {showBoot ? (
-          <View style={bootStyles.boot}>
-            <ActivityIndicator size="large" color="#8F7FD4" />
-          </View>
-        ) : null}
-        <Stack
-          screenOptions={{
-            headerStyle: {
-              backgroundColor: '#FFFFFF',
-            },
-            headerTintColor: '#141820',
-            headerTitleStyle: {
-              fontFamily: fontsLoaded ? 'Inter_600SemiBold' : undefined,
-              fontWeight: '600',
-            },
-            contentStyle: { backgroundColor: '#FFFFFF' },
-          }}
-        >
-          <Stack.Screen name="index" options={{ title: 'Reading', headerShown: false }} />
-          <Stack.Screen name="library" options={{ title: 'Library' }} />
-          <Stack.Screen name="settings" options={{ title: 'Settings' }} />
-        </Stack>
-      </FontReadyContext.Provider>
-    </RootErrorBoundary>
+    <SafeAreaProvider>
+      <RootErrorBoundary>
+        <FontReadyContext.Provider value={fontsLoaded}>
+          <StatusBar style="auto" />
+          <InitialRouteGate bootReady={bootReady} />
+          <Stack
+            screenOptions={{
+              headerStyle: {
+                backgroundColor: '#FFFFFF',
+              },
+              headerTintColor: '#141820',
+              headerTitleStyle: {
+                fontFamily: fontsLoaded ? 'Inter_600SemiBold' : undefined,
+                fontWeight: '600',
+              },
+              contentStyle: { backgroundColor: '#FFFFFF' },
+            }}
+          >
+            <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+            <Stack.Screen name="index" options={{ title: 'Reading', headerShown: false }} />
+            <Stack.Screen name="library" options={{ title: 'Library' }} />
+            <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+          </Stack>
+          <AppUpdatePromptHost />
+        </FontReadyContext.Provider>
+      </RootErrorBoundary>
+    </SafeAreaProvider>
   );
 }
 
 const bootStyles = StyleSheet.create({
-  boot: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    zIndex: 20,
-  },
   errorWrap: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#050A30',
     padding: 24,
     justifyContent: 'center',
   },
   errorTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#141820',
+    color: '#FFFFFF',
     marginBottom: 12,
   },
   errorBody: {
     fontSize: 14,
-    color: '#5C6478',
+    color: 'rgba(255, 255, 255, 0.72)',
     lineHeight: 20,
   },
 });
