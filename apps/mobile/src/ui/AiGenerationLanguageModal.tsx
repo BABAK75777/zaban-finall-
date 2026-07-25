@@ -29,6 +29,8 @@ type Props = {
   selected: string;
   onAccept: (code: string) => void;
   onClose: () => void;
+  /** Disables Accept while a language change is being applied. */
+  accepting?: boolean;
 };
 
 export function AiGenerationLanguageModal({
@@ -37,6 +39,7 @@ export function AiGenerationLanguageModal({
   selected,
   onAccept,
   onClose,
+  accepting = false,
 }: Props) {
   const colors = theme;
   const languages = getAiGenerationLanguages();
@@ -50,12 +53,13 @@ export function AiGenerationLanguageModal({
   }, [visible, selected]);
 
   const handleClose = () => {
+    if (accepting) return;
     onClose();
   };
 
   const handleAccept = () => {
+    if (accepting) return;
     onAccept(migrateAiGenerationLanguageId(tempSelected, DEFAULT_PRACTICE_LANGUAGE));
-    onClose();
   };
 
   return (
@@ -136,19 +140,24 @@ export function AiGenerationLanguageModal({
           >
             <Pressable
               onPress={handleAccept}
+              disabled={accepting}
               accessibilityRole="button"
               accessibilityLabel="Accept"
+              accessibilityState={{ disabled: accepting, busy: accepting }}
               testID={AI_GENERATION_LANGUAGE_MODAL_TEST_IDS.accept}
               style={({ pressed }) => [
                 styles.acceptBtn,
                 {
                   backgroundColor: colors.selection.bg,
                   borderColor: colors.selection.border,
+                  opacity: accepting ? 0.72 : 1,
                 },
-                pressed && { opacity: 0.9 },
+                pressed && !accepting && { opacity: 0.9 },
               ]}
             >
-              <Text style={[styles.acceptLabel, { color: colors.selection.text }]}>Accept</Text>
+              <Text style={[styles.acceptLabel, { color: colors.selection.text }]}>
+                {accepting ? 'Updating…' : 'Accept'}
+              </Text>
             </Pressable>
           </View>
         </SafeAreaView>

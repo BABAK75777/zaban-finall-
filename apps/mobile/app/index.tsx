@@ -52,6 +52,7 @@ import {
   shouldTouchLastActivityOn,
   buildKeepSentenceIds,
   InFlightTtsFetch,
+  clearSentenceCache,
   clearSentenceCacheIfIdleExpired,
   pruneSentenceCacheToKeepIds,
   touchLastActivityAt,
@@ -131,6 +132,7 @@ import {
   hashReadingText,
   loadDictionaryStore,
   mutateDictionaryStore,
+  migrateAiGenerationLanguageId,
   recordWordInReadingText,
   removeDictionaryEntry,
   recordPracticeUsageAfterAiGeneration,
@@ -143,6 +145,11 @@ import {
   type DictionarySettingsV1,
   type PracticeWordForAi,
 } from '../src/dictionary';
+import {
+  buildLanguageSwitchGeneratePayload,
+  requestAiGenerate,
+  resolveAiLanguageAcceptAction,
+} from '../src/ai/aiLanguageChange';
 import {
   DEFAULT_TEXT_SIZE,
   loadAppSettings,
@@ -364,6 +371,7 @@ export default function ReadingScreen() {
   const [showAiPrompt, setShowAiPrompt] = useState(false);
   const [showDictionarySettings, setShowDictionarySettings] = useState(false);
   const [showAiLanguageModal, setShowAiLanguageModal] = useState(false);
+  const [aiLanguageAccepting, setAiLanguageAccepting] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
   const ocrLoadingRef = useRef(false);
   const { themeId, theme, setTheme, resetTheme } = useTheme();
@@ -454,6 +462,8 @@ export default function ReadingScreen() {
   const sessionHydratedRef = useRef(false);
   const persistSkipLoggedRef = useRef(false);
   const statusRef = useRef<UiStatus>('idle');
+  const aiGenerationTokenRef = useRef(0);
+  const languageChangeInFlightRef = useRef(false);
 
   useEffect(() => {
     ocrLoadingRef.current = ocrLoading;
@@ -1426,6 +1436,137 @@ export default function ReadingScreen() {
     })();
   }, []);
 
+  const clearWordLookupState = useCallback(() => {
+    wordLookupGenRef.current += 1;
+    setWordLookupVisible(false);
+    setWordLookupLoading(false);
+    setWordLookupError(null);
+    setWordLookupMeaning(null);
+    setWordLookupPartOfSpeech(null);
+    setWordLookupDisplay('');
+    setWordLookupKey(null);
+    setWordLookupSaved(false);
+    setWordLookupCount(1);
+  }, []);
+
+  const handleAiGenerationLanguageAccept = useCallback(
+    (acceptedRaw: string) => {
+      void (async () => {
+        const acceptedId = migrateAiGenerationLanguageId(acceptedRaw);
+        const savedId = migrateAiGenerationLanguageId(
+          dictionarySettingsRef.current.practiceLanguage
+        );
+        const hasGeneratedText = textRef.current.trim().length > 0;
+        const action = resolveAiLanguageAcceptAction({
+          savedLanguageId: savedId,
+          acceptedLanguageId: acceptedId,
+          hasGeneratedText,
+        });
+
+        if (action === 'noop') {
+          setShowAiLanguageModal(false);
+          return;
+        }
+
+        if (languageChangeInFlightRef.current) {
+          return;
+        }
+        languageChangeInFlightRef.current = true;
+        setAiLanguageAccepting(true);
+        aiGenerationTokenRef.current += 1;
+        const token = aiGenerationTokenRef.current;
+        const previousText = textRef.current;
+
+        try {
+          setShowAiPrompt(false);
+          setShowAiLanguageModal(false);
+          cancelPlayback();
+          clearWordLookupState();
+          handleTextChange('');
+          setSentences([]);
+          setSentenceIndex(0);
+          sentenceIndexRef.current = 0;
+          sentencesRef.current = [];
+          setStatus('idle');
+          setStatusDetail(
+            action === 'save_and_regenerate'
+              ? 'Updating language…'
+              : 'Language updated.'
+          );
+          await clearSentenceCache();
+
+          if (token !== aiGenerationTokenRef.current) {
+            return;
+          }
+
+          const next = await updateDictionarySettings({
+            practiceLanguage: acceptedId as DictionarySettingsV1['practiceLanguage'],
+          });
+          if (token !== aiGenerationTokenRef.current) {
+            return;
+          }
+          setDictionarySettings(next);
+          dictionarySettingsRef.current = next;
+          logPracticeLanguageSelection(next.practiceLanguage);
+
+          if (action === 'save_only') {
+            setStatusDetail('');
+            void persistReadingSession();
+            return;
+          }
+
+          setAiGenerating(true);
+          setStatusDetail('Generating in new language…');
+          const payload = buildLanguageSwitchGeneratePayload(acceptedId, previousText);
+          const result = await requestAiGenerate(API_BASE_URL, payload);
+          if (token !== aiGenerationTokenRef.current) {
+            return;
+          }
+          if (result.blocked) {
+            Alert.alert('Not available', result.userMessage ?? 'Generation blocked.');
+            setStatus('error');
+            setStatusDetail('Language updated; generation was blocked.');
+            void persistReadingSession();
+            return;
+          }
+
+          cancelPlayback();
+          handleTextChange(result.text);
+          await syncSentencesFromTextAsync(result.text, readUnitRef.current, true);
+          if (token !== aiGenerationTokenRef.current) {
+            return;
+          }
+          setShowSettings(false);
+          setStatus('idle');
+          setStatusDetail('Ready in new language.');
+          void persistReadingSession();
+        } catch (err) {
+          if (token !== aiGenerationTokenRef.current) {
+            return;
+          }
+          const message =
+            err instanceof Error ? err.message : 'Could not regenerate in the new language.';
+          Alert.alert('Language update', message);
+          setStatus('error');
+          setStatusDetail(message);
+        } finally {
+          if (token === aiGenerationTokenRef.current) {
+            languageChangeInFlightRef.current = false;
+            setAiLanguageAccepting(false);
+            setAiGenerating(false);
+          }
+        }
+      })();
+    },
+    [
+      cancelPlayback,
+      clearWordLookupState,
+      handleTextChange,
+      persistReadingSession,
+      syncSentencesFromTextAsync,
+    ]
+  );
+
   const handleDictionaryEntriesChange = useCallback((entries: DictionaryEntry[]) => {
     void (async () => {
       const store = await mutateDictionaryStore((current) => ({ ...current, entries }));
@@ -1666,6 +1807,9 @@ export default function ReadingScreen() {
 
   const handleAiGenerated = useCallback(
     (generatedText: string, meta?: { practiceWordDetails?: PracticeWordForAi[] }) => {
+      if (languageChangeInFlightRef.current) {
+        return;
+      }
       cancelPlayback();
       handleTextChange(generatedText);
       void syncSentencesFromTextAsync(generatedText, readUnitRef.current, true);
@@ -2447,6 +2591,7 @@ export default function ReadingScreen() {
         practiceWordDetails={aiPracticeBatch}
         dictionaryTargetLanguage={dictionarySettings.practiceLanguage}
         onOpenAiGenerationLanguage={() => setShowAiLanguageModal(true)}
+        generationTokenRef={aiGenerationTokenRef}
         useDictionaryInAi={
           dictionarySettings.useDictionaryInAi && aiPracticeBatch.length > 0
         }
@@ -2456,12 +2601,13 @@ export default function ReadingScreen() {
         visible={showAiLanguageModal}
         theme={theme}
         selected={dictionarySettings.practiceLanguage}
-        onAccept={(code) => {
-          void handleDictionarySettingsChange({
-            practiceLanguage: code as DictionarySettingsV1['practiceLanguage'],
-          });
+        accepting={aiLanguageAccepting}
+        onAccept={handleAiGenerationLanguageAccept}
+        onClose={() => {
+          if (!aiLanguageAccepting) {
+            setShowAiLanguageModal(false);
+          }
         }}
-        onClose={() => setShowAiLanguageModal(false)}
       />
 
       <WordLookupSheet

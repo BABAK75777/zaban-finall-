@@ -33,9 +33,17 @@ describe('AI Generation Language modal selection contract', () => {
     expect(accepted).not.toBe(saved);
   });
 
-  it('accept without change is idempotent', () => {
+  it('accept without change is idempotent for decision helper', () => {
     const saved = 'fr-FR';
     const accepted = migrateAiGenerationLanguageId(saved);
     expect(accepted).toBe(saved);
+  });
+
+  it('X/Back keeps saved language (temp discarded)', () => {
+    const saved = 'en-US';
+    let temp = 'en-GB';
+    // Close without Accept — discard temp
+    temp = saved;
+    expect(migrateAiGenerationLanguageId(temp)).toBe('en-US');
   });
 });

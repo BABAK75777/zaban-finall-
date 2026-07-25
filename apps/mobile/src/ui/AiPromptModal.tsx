@@ -43,8 +43,8 @@ import {
   guardAiInput,
   validateAiPrompt,
 } from '../utils/aiPromptValidation';
-import { fetchWithTimeout, RequestTimeoutError } from '../utils/fetchWithTimeout';
 import { REQUEST_TIMEOUT_MS } from '../utils/requestTimeouts';
+import { requestAiGenerate, type AiGeneratePayload } from '../ai/aiLanguageChange';
 
 export type AiVoiceType = 'male' | 'female';
 
@@ -76,87 +76,10 @@ function defaultSettings(): AiPromptSettings {
   };
 }
 
-export interface AiGeneratePayload {
-  prompt: string;
-  cefrLevel: CefrLevel;
-  tone: number;
-  textLength: number;
-  /** Stable practice language ID (e.g. en-US). Authoritative — never infer from prompt. */
-  targetLanguage: string;
-  targetLanguageName: string;
-  /** BCP-47 locale for the selected practice language. */
-  targetLocale: string;
-  /** Concise AI instruction for the selected language/variant. */
-  targetLanguageInstruction: string;
-  practiceWords?: string[];
-  practiceWordDetails?: PracticeWordForAi[];
-  grammarFocus?: boolean;
-  speakingPractice?: boolean;
-  idiomsExpressions?: boolean;
-}
+export type { AiGeneratePayload };
 
 export interface AiGeneratedMeta {
   practiceWordDetails?: PracticeWordForAi[];
-}
-
-interface AiGenerateResponse {
-  ok: boolean;
-  text?: string;
-  error?: string;
-  details?: string;
-  blocked?: boolean;
-  userMessage?: string;
-  outputText?: string;
-}
-
-async function requestAiGenerate(
-  apiBaseUrl: string,
-  payload: AiGeneratePayload
-): Promise<{ blocked: boolean; text: string; userMessage?: string }> {
-  let response: Response;
-  try {
-    response = await fetchWithTimeout(
-      `${apiBaseUrl}/ai/generate`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      },
-      REQUEST_TIMEOUT_MS.ai,
-      'ai_generate'
-    );
-  } catch (err) {
-    if (err instanceof RequestTimeoutError) {
-      throw new Error('AI generation timed out. Check your connection and try again.');
-    }
-    throw err;
-  }
-
-  let data: AiGenerateResponse;
-  try {
-    data = (await response.json()) as AiGenerateResponse;
-  } catch {
-    throw new Error(`Invalid response from server (${response.status}).`);
-  }
-
-  if (!response.ok || !data.ok) {
-    throw new Error(data.details || data.error || `Request failed (${response.status}).`);
-  }
-
-  if (data.blocked) {
-    return {
-      blocked: true,
-      userMessage: data.userMessage ?? CODE_GENERATION_USER_MESSAGE,
-      text: '',
-    };
-  }
-
-  const generated = typeof data.text === 'string' ? data.text.trim() : '';
-  if (!generated) {
-    throw new Error('AI returned empty text.');
-  }
-
-  return { blocked: false, text: generated };
 }
 
 interface AiPromptModalProps {
@@ -172,6 +95,8 @@ interface AiPromptModalProps {
   /** AI Generation Language (practiceLanguage storage key). */
   dictionaryTargetLanguage: DictionaryLanguageCode;
   onOpenAiGenerationLanguage?: () => void;
+  /** Bumped by parent on AI language change so stale generates are ignored. */
+  generationTokenRef?: React.MutableRefObject<number>;
 }
 
 interface SliderRowProps {
@@ -232,6 +157,7 @@ export function AiPromptModal({
   useDictionaryInAi = false,
   dictionaryTargetLanguage,
   onOpenAiGenerationLanguage,
+  generationTokenRef,
 }: AiPromptModalProps) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
@@ -372,9 +298,13 @@ export function AiPromptModal({
     generateInFlightRef.current = true;
     setGenerating(true);
     Keyboard.dismiss();
+    const tokenAtStart = generationTokenRef?.current ?? 0;
 
     try {
       const result = await requestAiGenerate(apiBaseUrl, payload);
+      if (generationTokenRef && tokenAtStart !== generationTokenRef.current) {
+        return;
+      }
       if (result.blocked) {
         Alert.alert('Not available', result.userMessage ?? CODE_GENERATION_USER_MESSAGE);
         return;
@@ -385,13 +315,16 @@ export function AiPromptModal({
       );
       onClose();
     } catch (error) {
+      if (generationTokenRef && tokenAtStart !== generationTokenRef.current) {
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Generation failed.';
       Alert.alert('AI generation failed', message);
     } finally {
       generateInFlightRef.current = false;
       setGenerating(false);
     }
-  }, [apiBaseUrl, dictionaryTargetLanguage, generating, onClose, onGenerated, practiceWordDetails, settings, useDictionaryInAi]);
+  }, [apiBaseUrl, dictionaryTargetLanguage, generating, generationTokenRef, onClose, onGenerated, practiceWordDetails, settings, useDictionaryInAi]);
 
   const handleClose = useCallback(() => {
     onClose();
