@@ -3,13 +3,14 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ThemePalette } from '../theme/themeTypes';
 import {
   dictionaryLanguageLabel,
-  type DictionaryEntry,
-  type DictionarySettingsV1,
-} from '../dictionary';
+  type DictionaryLanguageCode,
+} from '../dictionary/dictionaryLanguages';
+import type { DictionaryEntry, DictionarySettingsV1 } from '../dictionary/dictionaryTypes';
 import { SavedWordsList } from './SavedWordsList';
 
 export const DICTIONARY_SETTINGS_TEST_IDS = {
   section: 'dictionary-settings-section',
+  practiceLanguageRow: 'dictionary-practice-language-row',
   languageRow: 'dictionary-language-row',
 } as const;
 
@@ -18,6 +19,7 @@ interface DictionarySettingsSectionProps {
   settings: DictionarySettingsV1;
   entries: DictionaryEntry[];
   onEntriesChange: (entries: DictionaryEntry[]) => void;
+  onOpenPracticeLanguagePicker: () => void;
   onOpenLanguagePicker: () => void;
 }
 
@@ -26,13 +28,34 @@ export function DictionarySettingsSection({
   settings,
   entries,
   onEntriesChange,
+  onOpenPracticeLanguagePicker,
   onOpenLanguagePicker,
 }: DictionarySettingsSectionProps) {
   return (
     <View style={styles.wrap} testID={DICTIONARY_SETTINGS_TEST_IDS.section}>
       <Text style={[styles.subtitle, { color: theme.textMuted }]}>
-        Tap any word on the reading screen to see its meaning.
+        Practice language controls AI text and speech. Meanings language is only for word lookups.
       </Text>
+
+      <Pressable
+        onPress={onOpenPracticeLanguagePicker}
+        accessibilityRole="button"
+        accessibilityLabel={`Practice language ${dictionaryLanguageLabel(settings.practiceLanguage)}`}
+        testID={DICTIONARY_SETTINGS_TEST_IDS.practiceLanguageRow}
+        style={({ pressed }) => [
+          styles.selectorRow,
+          { borderColor: theme.border, backgroundColor: theme.bg },
+          pressed && { opacity: 0.85 },
+        ]}
+      >
+        <Text style={[styles.selectorLabel, { color: theme.textDim }]}>Practice language</Text>
+        <View style={styles.selectorValueWrap}>
+          <Text style={[styles.selectorValue, { color: theme.text }]}>
+            {dictionaryLanguageLabel(settings.practiceLanguage)}
+          </Text>
+          <Text style={[styles.selectorChevron, { color: theme.textMuted }]}>˅</Text>
+        </View>
+      </Pressable>
 
       <Pressable
         onPress={onOpenLanguagePicker}

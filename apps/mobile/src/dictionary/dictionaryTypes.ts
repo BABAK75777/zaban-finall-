@@ -1,6 +1,9 @@
 import type { DictionaryLanguageCode } from './dictionaryLanguages';
+import type { GrammarHints } from './practiceQueueTypes';
 
 export interface DictionaryEntry {
+  /** Stable practice queue id (language + normalized word). */
+  id?: string;
   /** Normalized lookup key (lowercase). */
   word: string;
   /** Display form as tapped on screen. */
@@ -10,14 +13,27 @@ export interface DictionaryEntry {
   targetLanguage: DictionaryLanguageCode;
   savedAt: number;
   lookupCount: number;
-  /** Distinct reading texts / AI generations where this word appeared. */
+  /** Practice queue: target appearances across separate AI texts. */
+  targetUses?: 3 | 5;
+  usedCount?: number;
+  difficultyStarred?: boolean;
+  grammarHints?: GrammarHints;
+  updatedAt?: number;
+  lastMeaningAskedAt?: number;
+  lastUsedAt?: number;
+  /** Legacy — migrated into usedCount when missing. */
   textAppearanceCount: number;
   seenTextHashes?: string[];
 }
 
 export interface DictionarySettingsV1 {
   version: 1;
-  /** Language used when showing word meanings on tap. */
+  /**
+   * Practice / content language for AI generation and TTS (stable registry id).
+   * Never inferred from device/UI language.
+   */
+  practiceLanguage: DictionaryLanguageCode;
+  /** Language used when showing word meanings on tap (may differ from practice). */
   translationLanguage: DictionaryLanguageCode;
   /** Save words to personal dictionary when user looks them up. */
   saveWordsOnLookup: boolean;
@@ -37,4 +53,6 @@ export interface WordLookupResult {
   partOfSpeech?: string | null;
   targetLanguage: DictionaryLanguageCode;
   fromCache?: boolean;
+  blocked?: boolean;
+  userMessage?: string;
 }

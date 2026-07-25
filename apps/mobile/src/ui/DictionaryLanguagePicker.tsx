@@ -19,6 +19,7 @@ type Props = {
   selected: DictionaryLanguageCode;
   onSelect: (code: DictionaryLanguageCode) => void;
   onClose: () => void;
+  title?: string;
 };
 
 export function DictionaryLanguagePicker({
@@ -27,6 +28,7 @@ export function DictionaryLanguagePicker({
   selected,
   onSelect,
   onClose,
+  title = 'Translate meanings to',
 }: Props) {
   const colors = theme;
 
@@ -41,7 +43,7 @@ export function DictionaryLanguagePicker({
       <View style={styles.backdrop}>
         <View style={[styles.sheet, { backgroundColor: colors.bg, borderColor: colors.border }]}>
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
-            <Text style={[styles.title, { color: colors.text }]}>Translate meanings to</Text>
+            <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
             <Pressable
               onPress={onClose}
               hitSlop={8}

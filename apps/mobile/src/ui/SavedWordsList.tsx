@@ -1,13 +1,16 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { ThemePalette } from '../theme/themeTypes';
+import { dictionaryLanguageLabel, type DictionaryLanguageCode } from '../dictionary/dictionaryLanguages';
+import type { DictionaryEntry } from '../dictionary/dictionaryTypes';
 import {
   addManualDictionaryEntry,
-  dictionaryLanguageLabel,
   removeDictionaryEntry,
-  type DictionaryEntry,
-  type DictionaryLanguageCode,
-} from '../dictionary';
+} from '../dictionary/dictionaryStorage';
+import {
+  formatPracticeProgress,
+  migrateDictionaryEntry,
+} from '../dictionary/practiceQueue';
 
 export const SAVED_WORDS_LIST_TEST_IDS = {
   empty: 'saved-words-list-empty',
@@ -40,7 +43,14 @@ export function SavedWordsList({ theme, entries, targetLanguage, onEntriesChange
   const colors = theme;
   const [wordInput, setWordInput] = useState('');
 
-  const languageEntries = entries.filter((e) => e.targetLanguage === targetLanguage);
+  const visibleEntries = useMemo(() => {
+    return [...entries].sort((a, b) => {
+      const aCurrent = a.targetLanguage === targetLanguage ? 0 : 1;
+      const bCurrent = b.targetLanguage === targetLanguage ? 0 : 1;
+      if (aCurrent !== bCurrent) return aCurrent - bCurrent;
+      return (b.savedAt ?? 0) - (a.savedAt ?? 0);
+    });
+  }, [entries, targetLanguage]);
 
   const handleAdd = useCallback(() => {
     const word = wordInput.trim();
@@ -104,7 +114,7 @@ export function SavedWordsList({ theme, entries, targetLanguage, onEntriesChange
         </Pressable>
       </View>
 
-      {languageEntries.length === 0 ? (
+      {visibleEntries.length === 0 ? (
         <Text style={[styles.empty, { color: colors.textMuted }]} testID={SAVED_WORDS_LIST_TEST_IDS.empty}>
           No words yet.
         </Text>
@@ -117,17 +127,22 @@ export function SavedWordsList({ theme, entries, targetLanguage, onEntriesChange
           keyboardShouldPersistTaps="handled"
           testID={SAVED_WORDS_LIST_TEST_IDS.list}
         >
-          {languageEntries.map((entry) => (
+          {visibleEntries.map((entry) => {
+            const progress = migrateDictionaryEntry(entry);
+            return (
             <View
               key={`${entry.word}-${entry.targetLanguage}`}
               style={[styles.item, { borderColor: colors.border, backgroundColor: colors.surface }]}
               testID={SAVED_WORDS_LIST_TEST_IDS.item(entry.word)}
             >
               <View style={styles.itemBody}>
-                <Text style={[styles.itemWord, { color: colors.text }]}>{entry.displayWord}</Text>
+                <Text style={[styles.itemWord, { color: colors.text }]}>
+                  {formatPracticeProgress(entry)}
+                </Text>
                 <Text style={[styles.itemMeta, { color: colors.textDim }]}>
                   {dictionaryLanguageLabel(entry.targetLanguage)}
                   {entry.savedAt ? ` · ${formatSavedDate(entry.savedAt)}` : ''}
+                  {progress.usedCount >= progress.targetUses ? ' · completed' : ''}
                 </Text>
               </View>
               <Pressable
@@ -140,7 +155,8 @@ export function SavedWordsList({ theme, entries, targetLanguage, onEntriesChange
                 <Text style={[styles.deleteText, { color: colors.danger }]}>✕</Text>
               </Pressable>
             </View>
-          ))}
+          );
+          })}
         </ScrollView>
       )}
     </View>

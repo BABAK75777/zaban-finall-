@@ -17,11 +17,33 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { glassStyle } from '../theme/glass';
 import type { ThemeId, ThemePalette } from '../theme/themeTypes';
+import { CefrLevelSlider } from './CefrLevelSlider';
 import { SettingSlider } from './SettingSlider';
 import { SliderEndpointRow, type SliderEndpointPresetKey } from './SliderEndpointRow';
 import { READING_TEST_IDS } from './testIds';
 import { space } from './spacing';
-import { resolveOutputLanguage } from '../utils/resolveOutputLanguage';
+import {
+  cefrLevelFromIndex,
+  DEFAULT_CEFR_INDEX,
+  type CefrLevel,
+} from '../ai/cefrLevels';
+import {
+  resolvePracticeOutputLanguage,
+} from '../utils/resolvePracticeOutputLanguage';
+import {
+  getAiInstruction,
+  resolvePracticeLanguage,
+} from '../dictionary/dictionaryLanguages';
+import type { DictionaryLanguageCode } from '../dictionary/dictionaryLanguages';
+import type { PracticeWordForAi } from '../dictionary/practiceQueueTypes';
+import {
+  AI_PROMPT_MAX_LENGTH,
+  CODE_GENERATION_USER_MESSAGE,
+  guardAiInput,
+  validateAiPrompt,
+} from '../utils/aiPromptValidation';
+import { fetchWithTimeout, RequestTimeoutError } from '../utils/fetchWithTimeout';
+import { REQUEST_TIMEOUT_MS } from '../utils/requestTimeouts';
 
 export type AiVoiceType = 'male' | 'female';
 
@@ -30,7 +52,7 @@ export interface AiPromptSettings {
   grammarFocus: boolean;
   idiomsExpressions: boolean;
   speakingPractice: boolean;
-  difficulty: number;
+  cefrIndex: number;
   tone: number;
   textLength: number;
 }
@@ -47,7 +69,7 @@ function defaultSettings(): AiPromptSettings {
     grammarFocus: false,
     idiomsExpressions: false,
     speakingPractice: false,
-    difficulty: 0.5,
+    cefrIndex: DEFAULT_CEFR_INDEX,
     tone: 0.5,
     textLength: 0.35,
   };
@@ -55,18 +77,25 @@ function defaultSettings(): AiPromptSettings {
 
 export interface AiGeneratePayload {
   prompt: string;
-  difficulty: number;
+  cefrLevel: CefrLevel;
   tone: number;
   textLength: number;
-  targetLanguage?: string;
+  /** Stable practice language ID (e.g. en-US). Authoritative — never infer from prompt. */
+  targetLanguage: string;
+  targetLanguageName: string;
+  /** BCP-47 locale for the selected practice language. */
+  targetLocale: string;
+  /** Concise AI instruction for the selected language/variant. */
+  targetLanguageInstruction: string;
   practiceWords?: string[];
+  practiceWordDetails?: PracticeWordForAi[];
   grammarFocus?: boolean;
   speakingPractice?: boolean;
   idiomsExpressions?: boolean;
 }
 
 export interface AiGeneratedMeta {
-  practiceWords?: string[];
+  practiceWordDetails?: PracticeWordForAi[];
 }
 
 interface AiGenerateResponse {
@@ -74,14 +103,33 @@ interface AiGenerateResponse {
   text?: string;
   error?: string;
   details?: string;
+  blocked?: boolean;
+  userMessage?: string;
+  outputText?: string;
 }
 
-async function requestAiGenerate(apiBaseUrl: string, payload: AiGeneratePayload): Promise<string> {
-  const response = await fetch(`${apiBaseUrl}/ai/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+async function requestAiGenerate(
+  apiBaseUrl: string,
+  payload: AiGeneratePayload
+): Promise<{ blocked: boolean; text: string; userMessage?: string }> {
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(
+      `${apiBaseUrl}/ai/generate`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      REQUEST_TIMEOUT_MS.ai,
+      'ai_generate'
+    );
+  } catch (err) {
+    if (err instanceof RequestTimeoutError) {
+      throw new Error('AI generation timed out. Check your connection and try again.');
+    }
+    throw err;
+  }
 
   let data: AiGenerateResponse;
   try {
@@ -94,23 +142,33 @@ async function requestAiGenerate(apiBaseUrl: string, payload: AiGeneratePayload)
     throw new Error(data.details || data.error || `Request failed (${response.status}).`);
   }
 
+  if (data.blocked) {
+    return {
+      blocked: true,
+      userMessage: data.userMessage ?? CODE_GENERATION_USER_MESSAGE,
+      text: '',
+    };
+  }
+
   const generated = typeof data.text === 'string' ? data.text.trim() : '';
   if (!generated) {
     throw new Error('AI returned empty text.');
   }
 
-  return generated;
+  return { blocked: false, text: generated };
 }
 
 interface AiPromptModalProps {
   visible: boolean;
   onClose: () => void;
   onGenerated: (text: string, meta?: AiGeneratedMeta) => void;
+  onGeneratingChange?: (generating: boolean) => void;
   apiBaseUrl: string;
   theme: ThemePalette;
   themeId: ThemeId;
-  practiceWords?: string[];
+  practiceWordDetails?: PracticeWordForAi[];
   useDictionaryInAi?: boolean;
+  dictionaryTargetLanguage: DictionaryLanguageCode;
 }
 
 interface SliderRowProps {
@@ -163,11 +221,13 @@ export function AiPromptModal({
   visible,
   onClose,
   onGenerated,
+  onGeneratingChange,
   apiBaseUrl,
   theme,
   themeId,
-  practiceWords = [],
+  practiceWordDetails = [],
   useDictionaryInAi = false,
+  dictionaryTargetLanguage,
 }: AiPromptModalProps) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
@@ -220,6 +280,10 @@ export function AiPromptModal({
     }
   }, [visible]);
 
+  useEffect(() => {
+    onGeneratingChange?.(generating);
+  }, [generating, onGeneratingChange]);
+
   const focusPromptInput = useCallback(() => {
     const delay = Platform.OS === 'android' ? 160 : 60;
     setTimeout(() => {
@@ -256,20 +320,49 @@ export function AiPromptModal({
       return;
     }
 
-    const outputLanguage = resolveOutputLanguage(prompt);
-    const includePractice = useDictionaryInAi && practiceWords.length > 0;
+    const validation = validateAiPrompt(prompt);
+    if (!validation.ok) {
+      Alert.alert('Invalid prompt', validation.error);
+      return;
+    }
+
+    const inputSafety = guardAiInput(validation.prompt, { source: 'ai_story_modal' });
+    if (!inputSafety.allowed) {
+      Alert.alert('Not available', inputSafety.userMessage);
+      return;
+    }
+
+    const outputLanguage = resolvePracticeOutputLanguage(
+      inputSafety.input,
+      dictionaryTargetLanguage
+    );
+    const langMeta = resolvePracticeLanguage(outputLanguage.code);
+    const targetLocale = langMeta?.locale ?? outputLanguage.code;
+    const targetLanguageInstruction =
+      langMeta?.aiInstruction ?? getAiInstruction(outputLanguage.code);
+    const includePractice = useDictionaryInAi && practiceWordDetails.length > 0;
+    console.log(
+      `[LANGUAGE:AI_GENERATE] target=${outputLanguage.language} code=${outputLanguage.code} locale=${targetLocale} explicit=${outputLanguage.explicit}`
+    );
+    const selectedCefrLevel = cefrLevelFromIndex(settings.cefrIndex);
     const payload: AiGeneratePayload = {
-      prompt,
-      difficulty: settings.difficulty,
+      prompt: inputSafety.input,
+      cefrLevel: selectedCefrLevel,
       tone: settings.tone,
       textLength: settings.textLength,
       grammarFocus: settings.grammarFocus,
       speakingPractice: settings.speakingPractice,
       idiomsExpressions: settings.idiomsExpressions,
-      ...(outputLanguage.explicit && outputLanguage.code !== 'en'
-        ? { targetLanguage: outputLanguage.code }
+      targetLanguage: outputLanguage.code,
+      targetLanguageName: outputLanguage.language,
+      targetLocale,
+      targetLanguageInstruction,
+      ...(includePractice
+        ? {
+            practiceWords: practiceWordDetails.map((w) => w.displayWord),
+            practiceWordDetails,
+          }
         : {}),
-      ...(includePractice ? { practiceWords } : {}),
     };
 
     generateInFlightRef.current = true;
@@ -277,10 +370,14 @@ export function AiPromptModal({
     Keyboard.dismiss();
 
     try {
-      const generatedText = await requestAiGenerate(apiBaseUrl, payload);
+      const result = await requestAiGenerate(apiBaseUrl, payload);
+      if (result.blocked) {
+        Alert.alert('Not available', result.userMessage ?? CODE_GENERATION_USER_MESSAGE);
+        return;
+      }
       onGenerated(
-        generatedText,
-        includePractice ? { practiceWords: [...practiceWords] } : undefined
+        result.text,
+        includePractice ? { practiceWordDetails: [...practiceWordDetails] } : undefined
       );
       onClose();
     } catch (error) {
@@ -290,7 +387,7 @@ export function AiPromptModal({
       generateInFlightRef.current = false;
       setGenerating(false);
     }
-  }, [apiBaseUrl, generating, onClose, onGenerated, practiceWords, settings, useDictionaryInAi]);
+  }, [apiBaseUrl, dictionaryTargetLanguage, generating, onClose, onGenerated, practiceWordDetails, settings, useDictionaryInAi]);
 
   const handleClose = useCallback(() => {
     onClose();
@@ -360,6 +457,7 @@ export function AiPromptModal({
           { color: colors.inputText },
         ]}
         multiline
+        maxLength={AI_PROMPT_MAX_LENGTH}
         placeholder="What do you want to practice today?"
         placeholderTextColor={colors.inputPlaceholder}
         value={settings.prompt}
@@ -450,11 +548,9 @@ export function AiPromptModal({
                 keyboardDismissMode="interactive"
                 nestedScrollEnabled
               >
-                <SliderRow
-                  title="Difficulty"
-                  preset="difficulty"
-                  value={settings.difficulty}
-                  onChange={(difficulty) => patch({ difficulty })}
+                <CefrLevelSlider
+                  valueIndex={settings.cefrIndex}
+                  onChange={(cefrIndex) => patch({ cefrIndex })}
                   onDragStart={handleSliderDragStart}
                   onDragEnd={handleSliderDragEnd}
                   theme={theme}

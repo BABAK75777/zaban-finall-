@@ -7,7 +7,6 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
-import OpenAI from 'openai';
 import { sessionManager } from './ttsSessionManager.js';
 import { chunkText } from './textChunker.js';
 import { generateChunkAudio, estimateDurationMs } from './ttsChunkGenerator.js';
@@ -19,21 +18,38 @@ import { query } from './db/index.js';
 import authRoutes from './routes/auth.js';
 import usageRoutes from './routes/usage.js';
 import { getCacheFilePath, cacheExists, readCache, writeCache, getMimeType } from './utils/cache.js';
-import { getOpenAIApiKey, isOpenAIApiKeyConfigured, isOpenRouterConfigured } from './utils/env.js';
+import { getOpenRouterVisionModel, isOpenRouterConfigured } from './utils/env.js';
 import { openRouterChatCompletion, openRouterSpeech, OpenRouterError } from './utils/openrouter.js';
 import {
   resolveOutputLanguage,
   resolveOutputLanguageFromCode,
+  resolveGenerateOutputLanguage,
   buildAiGenerateMessages,
   isInvalidAiGenerateResponse,
   resolveAiSentenceLength,
   AI_GENERATE_SENTENCE_COUNT,
 } from './utils/resolveOutputLanguage.js';
 import {
+  cefrLevelFromLegacyDifficulty,
+  isValidCefrLevel,
+  resolveCefrForPrompt,
+} from './utils/cefrLevels.js';
+import {
   buildDictionaryLookupMessages,
+  dictionaryPromptMentionsPersianOutput,
   isDictionaryLanguageCode,
+  isPrimarilyPersianScript,
   parseDictionaryLookupResponse,
 } from './utils/dictionaryLookup.js';
+import { migrateLanguageId, resolveDictionaryLanguage } from '@zaban/dictionary-languages';
+import {
+  AI_PROMPT_MAX_LENGTH,
+  escapeAiPromptForDisplay,
+  guardAiInput,
+  guardAiOutput,
+  guardDictionaryLookupInput,
+  validateAiPrompt,
+} from '@zaban/ai-prompt-validation';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -74,13 +90,6 @@ if (!isOpenRouterConfigured()) {
   console.error('[TTS] Set OPENROUTER_API_KEY in Cloud Run secrets or backend/.env');
 } else {
   console.log('[TTS] OpenRouter API key configured');
-}
-
-// Legacy OpenAI client — only used for OCR endpoint
-const OPENAI_API_KEY = getOpenAIApiKey();
-let openaiClient = null;
-if (OPENAI_API_KEY) {
-  openaiClient = new OpenAI({ apiKey: OPENAI_API_KEY });
 }
 
 // API Key validation at startup (required in production)
@@ -1142,10 +1151,16 @@ app.post('/tts', async (req, res) => {
       speed = 1.0,
       sampleRate = 24000,
       voice: voiceParam,
+      locale: localeParam,
+      languageId: languageIdParam,
     } = req.body;
     
-    // Phase 6: Fixed values for removed options
-    const voiceId = 'en-US-Standard-C';
+    // Phase 6: Fixed values for removed options — locale separates en-US vs en-GB caches.
+    const ttsLocale =
+      typeof localeParam === 'string' && localeParam.trim()
+        ? localeParam.trim()
+        : 'en-US';
+    const voiceId = `${ttsLocale}-Standard-C`;
     const preset = 'default';
     const pitch = 0.0;
     const format = 'mp3';
@@ -1162,9 +1177,12 @@ app.post('/tts', async (req, res) => {
       return v;
     };
     const ttsVoice = normalizeTtsVoice(voiceParam);
+    if (typeof languageIdParam === 'string' && languageIdParam.trim()) {
+      console.log(`[TTS:${requestId}] languageId=${languageIdParam.trim()} locale=${ttsLocale}`);
+    }
     
     // Validate and reject unknown keys (strict mode for new API) - only if hash provided
-    const allowedKeys = ['text', 'path', 'hash', 'speed', 'sampleRate', 'voice'];
+    const allowedKeys = ['text', 'path', 'hash', 'speed', 'sampleRate', 'voice', 'locale', 'languageId'];
     const unknownKeys = Object.keys(req.body).filter(key => !allowedKeys.includes(key));
     if (unknownKeys.length > 0 && hashParam) {
       // Only enforce strict mode when hash is provided (new API usage)
@@ -1199,12 +1217,12 @@ app.post('/tts', async (req, res) => {
     // Phase 6: Fixed values - no validation needed
     const normalizedFormat = format.toLowerCase();
     
-    // Validate speed (0.5 - 1.5)
-    if (typeof speed !== 'number' || isNaN(speed) || speed < 0.5 || speed > 1.5) {
+    // Validate speed (0.5 - 1.2)
+    if (typeof speed !== 'number' || isNaN(speed) || speed < 0.5 || speed > 1.2) {
       return res.status(400).json({
         ok: false,
         error: 'SPEED_OUT_OF_RANGE',
-        details: 'speed must be a number between 0.5 and 1.5',
+        details: 'speed must be a number between 0.5 and 1.2',
         received: speed
       });
     }
@@ -1605,7 +1623,7 @@ app.post('/tts', async (req, res) => {
 // ============================================================================
 
 /**
- * POST /ocr - Extract text from image using OpenAI Vision
+ * POST /ocr - Extract text from image using OpenRouter vision
  * 
  * Input (JSON):
  * {
@@ -1631,22 +1649,16 @@ app.post('/ocr', async (req, res) => {
   console.log(`[OCR:${requestId}] Request received`);
 
   try {
-    // 1️⃣ VALIDATE OPENAI API KEY (Fail Fast)
-    const apiKey = getOpenAIApiKey();
-    if (!apiKey) {
-      const errorMsg = 'OpenAI API key not configured. Set OPENAI_API_KEY, OCR_OPENAI_API_KEY, or API_KEY in environment variables.';
+    // 1️⃣ VALIDATE OPENROUTER API KEY (Fail Fast)
+    if (!isOpenRouterConfigured()) {
+      const errorMsg = 'OpenRouter API key not configured. Set OPENROUTER_API_KEY in environment variables.';
       console.error(`[OCR:${requestId}] ${errorMsg}`);
       return res.status(500).json({
         ok: false,
         error: 'API_KEY_MISSING',
         debugId: requestId,
-        details: 'OpenAI API key not configured.'
+        details: 'OpenRouter API key not configured.'
       });
-    }
-    
-    // Ensure OpenAI client is initialized
-    if (!openaiClient) {
-      openaiClient = new OpenAI({ apiKey });
     }
 
     // 2️⃣ VALIDATE INPUT
@@ -1693,13 +1705,18 @@ app.post('/ocr', async (req, res) => {
       estimatedSizeKB: Math.round(base64Data.length * 0.75 / 1024)
     });
 
-    // 4️⃣ CALL OPENAI VISION API
-    const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o', // or 'gpt-4o-mini' for faster/cheaper
+    console.log(`[OCR:${requestId}] request started`);
+
+    // 4️⃣ CALL OPENROUTER VISION API
+    const visionModel = getOpenRouterVisionModel();
+    const extractedText = await openRouterChatCompletion({
+      model: visionModel,
+      max_tokens: 4096,
       messages: [
         {
           role: 'system',
-          content: 'Extract all readable text exactly. Preserve line breaks. No extra commentary.'
+          content:
+            'Extract all readable text from the image exactly as printed. Preserve line breaks. Return only the extracted text with no commentary.',
         },
         {
           role: 'user',
@@ -1707,20 +1724,18 @@ app.post('/ocr', async (req, res) => {
             {
               type: 'image_url',
               image_url: {
-                url: `data:${mimeType};base64,${base64Data}`
-              }
-            }
-          ]
-        }
+                url: `data:${mimeType};base64,${base64Data}`,
+              },
+            },
+          ],
+        },
       ],
-      max_tokens: 4096
     });
 
     // 5️⃣ EXTRACT TEXT FROM RESPONSE
-    const extractedText = response.choices?.[0]?.message?.content || '';
     
     if (!extractedText || extractedText.trim().length === 0) {
-      console.warn(`[OCR:${requestId}] No text extracted from image`);
+      console.warn(`[OCR:${requestId}] failed reason=no_text_extracted`);
       return res.status(200).json({
         ok: true,
         text: '',
@@ -1729,7 +1744,7 @@ app.post('/ocr', async (req, res) => {
     }
 
     const duration = Date.now() - startTime;
-    console.log(`[OCR:${requestId}] ✅ Text extracted:`, {
+    console.log(`[OCR:${requestId}] result length=${extractedText.length}`, {
       textLength: extractedText.length,
       duration: `${duration}ms`
     });
@@ -1754,13 +1769,33 @@ app.post('/ocr', async (req, res) => {
       stack: errorStack
     });
 
-    // Handle specific OpenAI errors
+    // Handle OpenRouter errors
+    if (error instanceof OpenRouterError) {
+      if (error.status === 401) {
+        return res.status(500).json({
+          ok: false,
+          error: 'API_KEY_INVALID',
+          debugId: requestId,
+          details: 'OpenRouter API key is invalid or expired'
+        });
+      }
+
+      if (error.status === 429) {
+        return res.status(429).json({
+          ok: false,
+          error: 'RATE_LIMIT',
+          debugId: requestId,
+          details: 'OpenRouter rate limit exceeded. Please try again later.'
+        });
+      }
+    }
+
     if (error?.status === 401) {
       return res.status(500).json({
         ok: false,
         error: 'API_KEY_INVALID',
         debugId: requestId,
-        details: 'OpenAI API key is invalid or expired'
+        details: 'API key is invalid or expired'
       });
     }
 
@@ -1769,7 +1804,7 @@ app.post('/ocr', async (req, res) => {
         ok: false,
         error: 'RATE_LIMIT',
         debugId: requestId,
-        details: 'OpenAI API rate limit exceeded. Please try again later.'
+        details: 'API rate limit exceeded. Please try again later.'
       });
     }
 
@@ -1803,7 +1838,7 @@ app.post('/dictionary/lookup', async (req, res) => {
       });
     }
 
-    const { word, context, targetLanguage, sourceLanguage } = req.body ?? {};
+    const { word, context, targetLanguage, targetLanguageName, sourceLanguage } = req.body ?? {};
     const trimmedWord = typeof word === 'string' ? word.trim() : '';
 
     if (!trimmedWord || trimmedWord.length > 80) {
@@ -1815,24 +1850,81 @@ app.post('/dictionary/lookup', async (req, res) => {
       });
     }
 
-    const target =
-      typeof targetLanguage === 'string' && isDictionaryLanguageCode(targetLanguage)
-        ? targetLanguage.trim().toLowerCase()
-        : 'fa';
+    if (!isDictionaryLanguageCode(targetLanguage)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'INVALID_INPUT',
+        debugId: requestId,
+        details: 'targetLanguage is required and must be a supported language code',
+      });
+    }
+
+    const target = migrateLanguageId(targetLanguage);
+    const resolvedTarget = resolveDictionaryLanguage(target);
+    const targetName = targetLanguageName ?? resolvedTarget?.label ?? target;
+
+    const lookupSafety = guardDictionaryLookupInput({
+      word: trimmedWord,
+      context: typeof context === 'string' ? context : '',
+      source: 'dictionary_lookup',
+    });
+    if (!lookupSafety.allowed) {
+      return res.status(200).json({
+        ok: true,
+        blocked: true,
+        reason: lookupSafety.reason,
+        outputText: lookupSafety.outputText,
+        meaning: lookupSafety.outputText,
+        userMessage: lookupSafety.userMessage,
+        word: trimmedWord,
+        targetLanguage: target,
+      });
+    }
+
+    console.log(`[LANGUAGE:TRANSLATE_REQUEST] target=${targetName} code=${target}`);
+
+    const lookupMessages = buildDictionaryLookupMessages({
+      word: trimmedWord,
+      context: typeof context === 'string' ? context : '',
+      targetLanguage: target,
+      targetLanguageName: targetName,
+      sourceLanguage: typeof sourceLanguage === 'string' ? sourceLanguage : undefined,
+    });
+
+    if (dictionaryPromptMentionsPersianOutput(lookupMessages[1].content, target)) {
+      console.warn(`[LANGUAGE:TRANSLATE_REQUEST] Persian output mentioned for non-fa target=${target}`);
+    }
 
     const generatedText = await openRouterChatCompletion({
-      messages: buildDictionaryLookupMessages({
-        word: trimmedWord,
-        context: typeof context === 'string' ? context : '',
-        targetLanguage: target,
-        sourceLanguage: typeof sourceLanguage === 'string' ? sourceLanguage : undefined,
-      }),
+      messages: lookupMessages,
       max_tokens: 256,
     });
 
-    const parsed = parseDictionaryLookupResponse(
+    let parsed = parseDictionaryLookupResponse(
       typeof generatedText === 'string' ? generatedText : ''
     );
+
+    if (parsed && target !== 'fa' && isPrimarilyPersianScript(parsed.meaning)) {
+      console.warn(
+        `[LANGUAGE:TRANSLATE_RESULT] Persian script detected for target=${target}, retrying`
+      );
+      const retryText = await openRouterChatCompletion({
+        messages: buildDictionaryLookupMessages({
+          word: trimmedWord,
+          context: typeof context === 'string' ? context : '',
+          targetLanguage: target,
+          targetLanguageName: `${targetName} ONLY`,
+          sourceLanguage: typeof sourceLanguage === 'string' ? sourceLanguage : undefined,
+        }),
+        max_tokens: 256,
+      });
+      const retryParsed = parseDictionaryLookupResponse(
+        typeof retryText === 'string' ? retryText : ''
+      );
+      if (retryParsed && !isPrimarilyPersianScript(retryParsed.meaning)) {
+        parsed = retryParsed;
+      }
+    }
 
     if (!parsed) {
       return res.status(500).json({
@@ -1842,6 +1934,22 @@ app.post('/dictionary/lookup', async (req, res) => {
         details: 'Could not parse dictionary response.',
       });
     }
+
+    const meaningSafety = guardAiOutput(parsed.meaning, { source: 'dictionary_lookup_output' });
+    if (!meaningSafety.allowed) {
+      return res.status(200).json({
+        ok: true,
+        blocked: true,
+        reason: meaningSafety.reason,
+        outputText: meaningSafety.outputText,
+        meaning: meaningSafety.outputText,
+        userMessage: meaningSafety.userMessage,
+        word: trimmedWord,
+        targetLanguage: target,
+      });
+    }
+
+    console.log(`[LANGUAGE:TRANSLATE_RESULT] target=${targetName}`);
 
     return res.status(200).json({
       ok: true,
@@ -1885,7 +1993,7 @@ app.post('/ai/generate', async (req, res) => {
       });
     }
 
-    const { prompt, difficulty, tone, textLength, voiceType, targetLanguage, practiceWords, grammarFocus, speakingPractice, idiomsExpressions } =
+    const { prompt, difficulty, cefrLevel, tone, textLength, voiceType, targetLanguage, targetLanguageName, targetLocale, targetLanguageInstruction, practiceWords, practiceWordDetails, grammarFocus, speakingPractice, idiomsExpressions } =
       req.body ?? {};
 
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
@@ -1897,12 +2005,36 @@ app.post('/ai/generate', async (req, res) => {
       });
     }
 
+    const promptValidation = validateAiPrompt(prompt);
+    if (!promptValidation.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: 'INVALID_PROMPT',
+        debugId: requestId,
+        details: promptValidation.error,
+      });
+    }
+
+    const inputSafety = guardAiInput(promptValidation.prompt, { source: 'ai_generate' });
+    if (!inputSafety.allowed) {
+      return res.status(200).json({
+        ok: true,
+        blocked: true,
+        reason: inputSafety.reason,
+        outputText: inputSafety.outputText,
+        text: inputSafety.outputText,
+        userMessage: inputSafety.userMessage,
+      });
+    }
+
+    const trimmedPrompt = inputSafety.input.slice(0, AI_PROMPT_MAX_LENGTH);
+    console.log(`[AI:${requestId}] Prompt preview`, escapeAiPromptForDisplay(trimmedPrompt.slice(0, 120)));
+
     const clamp01 = (value, fallback = 0.5) => {
       if (typeof value !== 'number' || Number.isNaN(value)) return fallback;
       return Math.max(0, Math.min(1, value));
     };
 
-    const d = clamp01(difficulty);
     const t = clamp01(tone);
     const len = clamp01(textLength, 0.35);
     const { wordsMin, wordsMax, styleHint } = resolveAiSentenceLength(len);
@@ -1910,25 +2042,34 @@ app.post('/ai/generate', async (req, res) => {
     const voice =
       voiceType === 'male' ? 'male' : voiceType === 'female' ? 'female' : 'female';
 
-    const difficultyLabel =
-      d <= 0.25 ? 'beginner (A1-A2)' : d <= 0.5 ? 'lower-intermediate (B1)' : d <= 0.75 ? 'upper-intermediate (B2)' : 'advanced (C1)';
+    let resolvedCefr;
+    if (isValidCefrLevel(cefrLevel)) {
+      resolvedCefr = resolveCefrForPrompt(cefrLevel);
+      console.log(`[AI:${requestId}] CEFR level=${resolvedCefr.cefrLevel}`);
+    } else {
+      const legacyLevel = cefrLevelFromLegacyDifficulty(difficulty);
+      resolvedCefr = resolveCefrForPrompt(legacyLevel);
+      console.log(`[AI:${requestId}] CEFR legacy fallback level=${resolvedCefr.cefrLevel}`);
+    }
+    const { cefrLevel: normalizedCefr, difficultyLabel, cefrGuidance } = resolvedCefr;
     const toneLabel =
       t <= 0.25 ? 'formal academic' : t <= 0.5 ? 'neutral educational' : t <= 0.75 ? 'conversational' : 'casual everyday';
-    const trimmedPrompt = prompt.trim().slice(0, 2000);
-    let outputLanguage = resolveOutputLanguage(trimmedPrompt);
+    let outputLanguage = resolveGenerateOutputLanguage(
+      targetLanguage,
+      targetLanguageName,
+      trimmedPrompt,
+      { targetLocale, targetLanguageInstruction }
+    );
 
-    if (typeof targetLanguage === 'string' && targetLanguage.trim()) {
-      const fromClient = resolveOutputLanguageFromCode(targetLanguage);
-      if (fromClient) {
-        outputLanguage = fromClient;
-      }
-    }
-
-    console.log(`[AI:${requestId}] Output language`, outputLanguage);
+    console.log(
+      `[LANGUAGE:AI_GENERATE] target=${outputLanguage.language} code=${outputLanguage.code} locale=${outputLanguage.locale ?? ''} explicit=${outputLanguage.explicit}`
+    );
 
     const messageParams = {
       trimmedPrompt,
       difficultyLabel,
+      cefrLevel: normalizedCefr,
+      cefrGuidance,
       toneLabel,
       voice,
       sentenceTarget,
@@ -1937,6 +2078,7 @@ app.post('/ai/generate', async (req, res) => {
       styleHint,
       outputLanguage,
       practiceWords: Array.isArray(practiceWords) ? practiceWords : [],
+      practiceWordDetails: Array.isArray(practiceWordDetails) ? practiceWordDetails : [],
       grammarFocus: Boolean(grammarFocus),
       speakingPractice: Boolean(speakingPractice),
       idiomsExpressions: Boolean(idiomsExpressions),
@@ -1973,12 +2115,24 @@ app.post('/ai/generate', async (req, res) => {
       });
     }
 
+    const outputSafety = guardAiOutput(text, { source: 'ai_generate_output' });
+    if (!outputSafety.allowed) {
+      return res.status(200).json({
+        ok: true,
+        blocked: true,
+        reason: outputSafety.reason,
+        outputText: outputSafety.outputText,
+        text: outputSafety.outputText,
+        userMessage: outputSafety.userMessage,
+      });
+    }
+
     console.log(`[AI:${requestId}] Generated text`, {
-      textLength: text.length,
+      textLength: outputSafety.text.length,
       duration: `${Date.now() - startTime}ms`,
     });
 
-    return res.status(200).json({ ok: true, text });
+    return res.status(200).json({ ok: true, text: outputSafety.text });
   } catch (error) {
     const errorMessage = error?.message || 'Unknown error';
     console.error(`[AI:${requestId}] Error:`, {

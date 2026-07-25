@@ -1,31 +1,41 @@
-/** Languages available for on-screen word translation (meanings). */
-export const DICTIONARY_LANGUAGES = [
-  { code: 'ar', label: 'Arabic' },
-  { code: 'en', label: 'English' },
-  { code: 'fr', label: 'French' },
-  { code: 'de', label: 'German' },
-  { code: 'hi', label: 'Hindi' },
-  { code: 'ko', label: 'Korean' },
-  { code: 'fa', label: 'Persian' },
-  { code: 'pt', label: 'Portuguese' },
-  { code: 'ru', label: 'Russian' },
-  { code: 'es', label: 'Spanish' },
-  { code: 'tr', label: 'Turkish' },
-  { code: 'uk', label: 'Ukrainian' },
-  { code: 'ur', label: 'Urdu' },
-] as const;
+import {
+  DEFAULT_DICTIONARY_LANGUAGE,
+  DEFAULT_PRACTICE_LANGUAGE,
+  DEFAULT_TRANSLATION_LANGUAGE,
+  DICTIONARY_LANGUAGES,
+  PRACTICE_LANGUAGES,
+  getAiInstruction,
+  getSttLocale,
+  getTtsLocale,
+  isDictionaryLanguageCode,
+  isPracticeLanguageId,
+  migrateLanguageId,
+  normalizeLanguageId,
+  resolveDictionaryLanguage,
+  resolvePracticeLanguage,
+  resolveTtsLocaleWithFallback,
+} from '@zaban/dictionary-languages';
 
-export type DictionaryLanguageCode = (typeof DICTIONARY_LANGUAGES)[number]['code'];
+export {
+  DEFAULT_DICTIONARY_LANGUAGE,
+  DEFAULT_PRACTICE_LANGUAGE,
+  DEFAULT_TRANSLATION_LANGUAGE,
+  DICTIONARY_LANGUAGES,
+  PRACTICE_LANGUAGES,
+  getAiInstruction,
+  getSttLocale,
+  getTtsLocale,
+  isDictionaryLanguageCode,
+  isPracticeLanguageId,
+  migrateLanguageId,
+  normalizeLanguageId,
+  resolveDictionaryLanguage,
+  resolvePracticeLanguage,
+  resolveTtsLocaleWithFallback,
+};
 
-export const DEFAULT_DICTIONARY_LANGUAGE: DictionaryLanguageCode = 'fa';
+export type DictionaryLanguageCode = (typeof PRACTICE_LANGUAGES)[number]['id'];
 
-export function isDictionaryLanguageCode(value: unknown): value is DictionaryLanguageCode {
-  return (
-    typeof value === 'string' &&
-    DICTIONARY_LANGUAGES.some((lang) => lang.code === value)
-  );
-}
-
-export function dictionaryLanguageLabel(code: DictionaryLanguageCode): string {
-  return DICTIONARY_LANGUAGES.find((l) => l.code === code)?.label ?? code;
+export function dictionaryLanguageLabel(code: DictionaryLanguageCode | string): string {
+  return resolveDictionaryLanguage(code)?.label ?? String(code);
 }

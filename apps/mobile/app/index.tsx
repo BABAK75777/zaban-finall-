@@ -4,7 +4,7 @@
 
 import Constants from 'expo-constants';
 import { Audio } from 'expo-av';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -22,6 +22,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -33,7 +34,6 @@ import {
   putCachedSentenceAudio,
   resolveSentenceAudio,
   setActiveSentenceRing,
-  splitIntoSentences,
   getSentenceCacheStats,
   logEndurance,
   logLifecycle,
@@ -55,6 +55,24 @@ import {
   clearSentenceCacheIfIdleExpired,
   pruneSentenceCacheToKeepIds,
   touchLastActivityAt,
+  DEFAULT_UI_AI_SPEED,
+  MIN_UI_AI_SPEED,
+  MAX_UI_AI_SPEED,
+  TTS_GENERATION_SPEED,
+  clampUiSpeed,
+  resolveAiPlaybackSpeed,
+  uiSpeedToRuntimeRate,
+  formatUiSpeed,
+  logAiSpeedSettingChanged,
+  logAiSpeedPersisted,
+  logAiSpeedPlaybackStart,
+  logAiSpeedSetPlaybackRate,
+  logAiSpeedReplay,
+  shouldCleanupPlaybackOnAppState,
+  playbackCleanupLogMessage,
+  APPSTATE_ACTIVE_RECOVERY_LOG,
+  OPERATION_GUARD_BACKGROUND_RELEASE_LOG,
+  shouldForceIdleOnActiveRecovery,
 } from '@zaban/tts-mobile';
 import type { PlaySource, SentenceCacheSplitMode } from '@zaban/tts-mobile';
 import {
@@ -65,18 +83,26 @@ import {
   type UiStatus,
 } from '../src/theme';
 import { ActionCluster } from '../src/ui/ActionCluster';
-import { AdBanner } from '../src/components/AdBanner';
+import {
+  AdBanner,
+  AD_BANNER_SAFE_DISTANCE_FROM_CONTROLS,
+} from '../src/components/AdBanner';
+import { AD_SAFE_GAP_DP } from '../src/ads/adBannerLayout';
 import { TappableHeroSentence } from '../src/ui/TappableHeroSentence';
 import { DictionarySettingsModal } from '../src/ui/DictionarySettingsModal';
-import { PhotoSourceModal } from '../src/ui/PhotoSourceModal';
 import { PracticeTextModal } from '../src/ui/PracticeTextModal';
 import { WordLookupSheet } from '../src/ui/WordLookupSheet';
 import { NavPills } from '../src/ui/NavPills';
 import { AiPromptModal, type AiVoiceType } from '../src/ui/AiPromptModal';
 import { SettingSlider } from '../src/ui/SettingSlider';
 import { SliderEndpointRow } from '../src/ui/SliderEndpointRow';
+import {
+  SETTINGS_TEXT_SIZE_MIN,
+  SETTINGS_TEXT_SIZE_MAX,
+  formatSettingsHeaderTitle,
+} from '../src/ui/settingsPanelLayout';
 import { TopAmbientBar } from '../src/ui/TopAmbientBar';
-import { useResponsiveLayoutMetrics } from '../src/ui/responsiveLayout';
+import { useResponsiveLayoutMetrics, getContentMaxWidth } from '../src/ui/responsiveLayout';
 import { READING_TEST_IDS, voiceTestId } from '../src/ui/testIds';
 import { space } from '../src/ui/spacing';
 import {
@@ -84,117 +110,66 @@ import {
   startShadowRecording,
   stopShadowRecording as stopShadowRecordingSession,
 } from '../src/audio/shadowRecordingSession';
+import { configurePlaybackAudioMode } from '../src/audio/recordingAudioMode';
+import { consumeOpenAiAfterOnboardingPending } from '../src/onboarding/onboardingStorage';
 
 import { API_BASE_URL } from '../src/config/apiBaseUrl';
+import { BRANDING } from '../src/config/branding';
+import { getAppVersionLabel, logAppVersionLoaded } from '../src/config/appVersion';
+import {
+  deriveAdInteractionState,
+  formatAdBusyStateLog,
+} from '../src/ads/interactionSafeForAds';
+import { useAppStateActive } from '../src/ads/useAppStateActive';
+import { useWordHighlight } from '../src/reading/useWordHighlight';
 import {
   defaultDictionarySettings,
   findDictionaryEntry,
-  getPracticeWordsForAi,
+  addMeaningWord,
   hashReadingText,
-  incrementLookupCount,
   loadDictionaryStore,
+  mutateDictionaryStore,
   recordWordInReadingText,
   removeDictionaryEntry,
-  removePracticeWordsUsedInAiText,
+  recordPracticeUsageAfterAiGeneration,
   requestWordLookup,
-  saveDictionaryStore,
+  selectDueWordsForAi,
   updateDictionarySettings,
   upsertDictionaryEntry,
+  migrateDictionaryEntry,
   type DictionaryEntry,
   type DictionarySettingsV1,
+  type PracticeWordForAi,
 } from '../src/dictionary';
+import {
+  DEFAULT_TEXT_SIZE,
+  loadAppSettings,
+  saveAppSettings,
+} from '../src/settings/appSettingsStorage';
+import {
+  AI_SPEED_SLIDER_STEP,
+  formatAiSpeedLabel,
+} from '../src/settings/aiSpeedSettings';
 import { requestOcrFromImageDataUrl } from '../src/ocr/ocrApi';
+import { imageAssetToDataUrl } from '../src/ocr/imageAssetToDataUrl';
+import { logDictionaryLanguageSelection, logPracticeLanguageSelection } from '../src/utils/resolvePracticeOutputLanguage';
+import { resolveTtsLocaleWithFallback } from '../src/dictionary/dictionaryLanguages';
+import { fetchWithTimeout, RequestTimeoutError } from '../src/utils/fetchWithTimeout';
+import {
+  ASYNC_CHUNKING_THRESHOLD,
+  createSafeReadingChunks,
+  createSafeReadingChunksAsync,
+  formatLongTextStatus,
+  MAX_TTS_CHUNK_CHARS,
+  REQUEST_TIMEOUT_MS,
+  selectCacheKeepIds,
+  shouldWarnLargeText,
+  truncateForTtsRequest,
+  type ReadUnit,
+} from '../src/utils/longTextProcessing';
 
 const DEFAULT_TTS_VOICE: AiVoiceType = 'female';
-const DEFAULT_AI_SPEED = 1.0;
-const DEFAULT_TEXT_SIZE = 40;
 const DEFAULT_READ_UNIT = '1' as const;
-type ReadUnit = '1/4' | '1/2' | '3/4' | '1' | '2' | '3' | '4' | '1p' | '2p' | 'page';
-
-function splitHalfSentence(sentence: string): string[] {
-  const midPoint = sentence.indexOf(',', Math.floor(sentence.length / 3));
-  if (midPoint !== -1 && midPoint < sentence.length * 0.7) {
-    return [sentence.slice(0, midPoint + 1).trim(), sentence.slice(midPoint + 1).trim()];
-  }
-  const words = sentence.split(/\s+/);
-  if (words.length <= 1) return [sentence];
-  const half = Math.ceil(words.length / 2);
-  return [words.slice(0, half).join(' '), words.slice(half).join(' ')];
-}
-
-function splitSentenceFraction(sentence: string, parts: number, take: number): string[] {
-  const words = sentence.split(/\s+/).filter(Boolean);
-  if (words.length <= 1 || parts <= 1) return [sentence];
-  if (take >= parts) return [sentence];
-  const chunkSize = Math.max(1, Math.ceil(words.length / parts));
-  const result: string[] = [];
-  for (let i = 0; i < words.length; i += chunkSize) {
-    result.push(words.slice(i, i + chunkSize).join(' '));
-  }
-  if (take === 1) return result;
-  const merged: string[] = [];
-  for (let i = 0; i < result.length; i += take) {
-    merged.push(result.slice(i, i + take).join(' '));
-  }
-  return merged.filter(Boolean);
-}
-
-function createReadingChunks(text: string, unit: ReadUnit): string[] {
-  const trimmed = text.trim();
-  if (!trimmed) return [];
-
-  let result: string[] = [];
-  switch (unit) {
-    case '1/4':
-      splitIntoSentences(trimmed).forEach((s) => {
-        result.push(...splitSentenceFraction(s, 4, 1));
-      });
-      break;
-    case '1/2':
-      splitIntoSentences(trimmed).forEach((s) => {
-        result.push(...splitHalfSentence(s));
-      });
-      break;
-    case '3/4':
-      splitIntoSentences(trimmed).forEach((s) => {
-        const words = s.split(/\s+/).filter(Boolean);
-        if (words.length <= 1) {
-          result.push(s);
-        } else {
-          const end = Math.max(1, Math.ceil(words.length * 0.75));
-          result.push(words.slice(0, end).join(' '));
-        }
-      });
-      break;
-    case '2':
-    case '3':
-    case '4': {
-      const n = parseInt(unit, 10);
-      const sentences = splitIntoSentences(trimmed);
-      for (let i = 0; i < sentences.length; i += n) {
-        result.push(sentences.slice(i, i + n).join(' '));
-      }
-      break;
-    }
-    case '1p':
-    case '2p': {
-      const pn = unit === '1p' ? 1 : 2;
-      const paragraphs = trimmed.split(/\n\s*\n/).filter((p) => p.trim());
-      for (let i = 0; i < paragraphs.length; i += pn) {
-        result.push(paragraphs.slice(i, i + pn).join('\n\n'));
-      }
-      break;
-    }
-    case 'page':
-      result = [trimmed];
-      break;
-    case '1':
-    default:
-      result = splitIntoSentences(trimmed);
-  }
-
-  return result.filter((r) => r.trim());
-}
 
 function readUnitToSplitMode(unit: ReadUnit): SentenceCacheSplitMode {
   switch (unit) {
@@ -298,11 +273,10 @@ function toHex8(n: number): string {
  * Stable sentenceId for cache keys — same text + voice + source always yields same id.
  * Does not use @zaban/tts-core generateChunkHash (not RN-safe).
  */
-/** Cache id includes voice + TTS speed so audio is generated at the learner's pace (not stretched client-side). */
+/** Cache id is voice + text only — tempo is applied client-side for consistency. */
 
-function formatTtsSpeed(speed: number): string {
-  const clamped = Math.max(0.5, Math.min(1.5, speed));
-  return (Math.round(clamped * 10) / 10).toFixed(1);
+function formatTtsSpeed(_speed: number): string {
+  return formatUiSpeed(TTS_GENERATION_SPEED);
 }
 
 type PlaybackRateCapable = {
@@ -311,21 +285,30 @@ type PlaybackRateCapable = {
 };
 
 /** Never crash if player lacks rate control (CHAT2 / stale bundles). */
-function safeSetPlaybackRate(player: PlaybackRateCapable | null | undefined, rate: number): void {
+function applyAiPlaybackRate(
+  player: PlaybackRateCapable | null | undefined,
+  uiSpeed: number,
+  reason?: string
+): number {
+  const { runtimeRate } = resolveAiPlaybackSpeed(uiSpeed);
   if (player == null) {
-    console.log('[PlaybackRate] unavailable');
-    return;
+    logAiSpeedSetPlaybackRate(uiSpeed, 'player_unavailable');
+    return runtimeRate;
   }
   try {
     const setter = player.setPlaybackRate;
     if (typeof setter !== 'function') {
-      console.log('[PlaybackRate] unavailable');
-      return;
+      logAiSpeedSetPlaybackRate(uiSpeed, 'setPlaybackRate_unavailable');
+      return runtimeRate;
     }
-    setter.call(player, rate);
+    setter.call(player, runtimeRate);
+    if (reason) {
+      logAiSpeedSetPlaybackRate(uiSpeed, reason);
+    }
   } catch {
-    console.log('[PlaybackRate] unavailable');
+    logAiSpeedSetPlaybackRate(uiSpeed, 'setPlaybackRate_threw');
   }
+  return runtimeRate;
 }
 
 function safeGetPlaybackRate(
@@ -345,9 +328,9 @@ function safeGetPlaybackRate(
     return fallback;
   }
 }
-function sentenceToMobileId(sentence: string, voiceApi: string, speed = 1.0): string {
+function sentenceToMobileId(sentence: string, voiceApi: string): string {
   const normalized = sentence.trim().replace(/\s+/g, ' ').replace(/\n+/g, '\n');
-  const speedKey = formatTtsSpeed(speed);
+  const speedKey = formatTtsSpeed(TTS_GENERATION_SPEED);
   const key = `${normalized}|${HASH_SOURCE}|${voiceApi}|default|${speedKey}|0|mp3|24000`;
   const h1 = fnv1a32(key, 0x811c9dc5);
   const h2 = fnv1a32(key, 0x01000193);
@@ -366,6 +349,9 @@ function base64ToBytes(b64: string): Uint8Array {
 }
 
 export default function ReadingScreen() {
+  const router = useRouter();
+  const { width: screenWidth } = useWindowDimensions();
+  const contentMaxWidth = getContentMaxWidth(screenWidth);
   const [text, setText] = useState('');
   const [sentences, setSentences] = useState<string[]>([]);
   const [sentenceIndex, setSentenceIndex] = useState(0);
@@ -375,10 +361,10 @@ export default function ReadingScreen() {
   const [showSettings, setShowSettings] = useState(false);
   const [showAiPrompt, setShowAiPrompt] = useState(false);
   const [showDictionarySettings, setShowDictionarySettings] = useState(false);
-  const [showPhotoSource, setShowPhotoSource] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
+  const ocrLoadingRef = useRef(false);
   const { themeId, theme, setTheme, resetTheme } = useTheme();
-  const [aiSpeed, setAiSpeed] = useState(DEFAULT_AI_SPEED);
+  const [aiSpeed, setAiSpeed] = useState(DEFAULT_UI_AI_SPEED);
   const [ttsVoiceType, setTtsVoiceType] = useState<AiVoiceType>(DEFAULT_TTS_VOICE);
   const [textSize, setTextSize] = useState(DEFAULT_TEXT_SIZE);
   const [readUnit, setReadUnit] = useState<ReadUnit>(DEFAULT_READ_UNIT);
@@ -389,20 +375,37 @@ export default function ReadingScreen() {
     setShadowPhase(phase);
   }, []);
   const [shadowHint, setShadowHint] = useState<string | null>(null);
+  const [navigating, setNavigating] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const appStateActive = useAppStateActive();
   const [settingsScrollEnabled, setSettingsScrollEnabled] = useState(true);
   const [dictionarySettings, setDictionarySettings] = useState<DictionarySettingsV1>(
     defaultDictionarySettings()
   );
   const [dictionaryEntries, setDictionaryEntries] = useState<DictionaryEntry[]>([]);
   const dictionaryEntriesRef = useRef<DictionaryEntry[]>([]);
-  const aiPracticeWords = useMemo(
-    () => getPracticeWordsForAi(dictionaryEntries),
-    [dictionaryEntries]
+  const dictionarySettingsRef = useRef(dictionarySettings);
+  const aiPracticeBatch = useMemo(
+    () => selectDueWordsForAi(dictionaryEntries, undefined, dictionarySettings.practiceLanguage),
+    [dictionaryEntries, dictionarySettings.practiceLanguage]
   );
-  const appVersionLabel = useMemo(() => {
-    const version = Constants.expoConfig?.version ?? '1.8.0';
-    const short = version.replace(/(\.0)+$/, '');
-    return `v${short}`;
+  const appVersionLabel = useMemo(() => getAppVersionLabel(), []);
+
+  useEffect(() => {
+    logAppVersionLoaded(appVersionLabel);
+  }, [appVersionLabel]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const openAi = await consumeOpenAiAfterOnboardingPending();
+      if (!cancelled && openAi) {
+        setShowAiPrompt(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
   const [wordLookupVisible, setWordLookupVisible] = useState(false);
   const [wordLookupLoading, setWordLookupLoading] = useState(false);
@@ -411,11 +414,23 @@ export default function ReadingScreen() {
   const [wordLookupPartOfSpeech, setWordLookupPartOfSpeech] = useState<string | null>(null);
   const [wordLookupDisplay, setWordLookupDisplay] = useState('');
   const [wordLookupKey, setWordLookupKey] = useState<string | null>(null);
+  const { highlightedWord, setHighlightedWord, clearHighlightedWord } = useWordHighlight();
   const [wordLookupSaved, setWordLookupSaved] = useState(false);
-  const [wordLookupAppearanceCount, setWordLookupAppearanceCount] = useState(1);
   const [wordLookupCount, setWordLookupCount] = useState(1);
   const wordLookupGenRef = useRef(0);
+  const activeWordPractice = useMemo(() => {
+    if (!wordLookupKey) return null;
+    const entry = findDictionaryEntry(
+      dictionaryEntries,
+      wordLookupKey,
+      dictionarySettings.translationLanguage
+    );
+    return entry ? migrateDictionaryEntry(entry) : null;
+  }, [dictionaryEntries, wordLookupKey, dictionarySettings.translationLanguage]);
   const readingTextHashRef = useRef<string | null>(null);
+  const chunkSyncGenRef = useRef(0);
+  const largeTextWarnedRef = useRef(false);
+  const fetchingStartedAtRef = useRef<number | null>(null);
 
   const [player] = useState(() => new MobileAudioPlayer());
   const [guard] = useState(() => new OperationGuard());
@@ -435,6 +450,36 @@ export default function ReadingScreen() {
   const sentencesRef = useRef(sentences);
   const sessionHydratedRef = useRef(false);
   const persistSkipLoggedRef = useRef(false);
+  const statusRef = useRef<UiStatus>('idle');
+
+  useEffect(() => {
+    ocrLoadingRef.current = ocrLoading;
+  }, [ocrLoading]);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  useEffect(() => {
+    if (status !== 'fetching') {
+      return;
+    }
+    const deadlineMs = REQUEST_TIMEOUT_MS.tts + 5_000;
+    const timer = setTimeout(() => {
+      if (statusRef.current !== 'fetching') {
+        return;
+      }
+      console.log(`[LONG_TEXT] timeout op=playback_watchdog ms=${deadlineMs}`);
+      playbackGenRef.current += 1;
+      guard.cancel();
+      player.cancel();
+      fetchingStartedAtRef.current = null;
+      setStatus('error');
+      setStatusDetail('Audio request took too long. Tap AI to retry this chunk.');
+      console.log('[OPERATION_GUARD] released after long-text op');
+    }, deadlineMs);
+    return () => clearTimeout(timer);
+  }, [status, guard, player]);
 
   useEffect(() => {
     textRef.current = text;
@@ -450,7 +495,8 @@ export default function ReadingScreen() {
 
   useEffect(() => {
     aiSpeedRef.current = aiSpeed;
-  }, [aiSpeed]);
+    applyAiPlaybackRate(player, aiSpeed);
+  }, [aiSpeed, player]);
 
   useEffect(() => {
     ttsVoiceTypeRef.current = ttsVoiceType;
@@ -463,6 +509,21 @@ export default function ReadingScreen() {
   useEffect(() => {
     dictionaryEntriesRef.current = dictionaryEntries;
   }, [dictionaryEntries]);
+
+  useEffect(() => {
+    dictionarySettingsRef.current = dictionarySettings;
+  }, [dictionarySettings]);
+
+  useEffect(() => {
+    void (async () => {
+      const settings = await loadAppSettings();
+      const speed = clampUiSpeed(settings.aiPlaybackSpeed);
+      setAiSpeed(speed);
+      aiSpeedRef.current = speed;
+      setTextSize(settings.textSize);
+      applyAiPlaybackRate(player, speed, 'settings_restore');
+    })();
+  }, [player]);
 
   useEffect(() => {
     void (async () => {
@@ -478,16 +539,20 @@ export default function ReadingScreen() {
 
     const textHash = hashReadingText(fullText);
     if (readingTextHashRef.current === textHash) return;
-    readingTextHashRef.current = textHash;
 
-    void (async () => {
-      const store = await loadDictionaryStore();
-      const nextEntries = recordWordInReadingText(store.entries, fullText, textHash);
-      if (nextEntries !== store.entries) {
-        await saveDictionaryStore({ ...store, entries: nextEntries });
-        setDictionaryEntries(nextEntries);
-      }
-    })();
+    const task = InteractionManager.runAfterInteractions(() => {
+      readingTextHashRef.current = textHash;
+      void (async () => {
+        const store = await mutateDictionaryStore((current) => {
+          const nextEntries = recordWordInReadingText(current.entries, fullText, textHash);
+          if (nextEntries === current.entries) return current;
+          return { ...current, entries: nextEntries };
+        });
+        setDictionaryEntries(store.entries);
+      })();
+    });
+
+    return () => task.cancel();
   }, [text]);
 
   const handleSliderDragStart = useCallback(() => {
@@ -498,9 +563,34 @@ export default function ReadingScreen() {
     setSettingsScrollEnabled(true);
   }, []);
 
-  const handleAiSpeedChange = useCallback((next: number) => {
-    setAiSpeed(next);
-    aiSpeedRef.current = next;
+  const handleAiSpeedLiveChange = useCallback(
+    (next: number) => {
+      const clamped = clampUiSpeed(next);
+      setAiSpeed(clamped);
+      aiSpeedRef.current = clamped;
+      logAiSpeedSettingChanged(clamped);
+      applyAiPlaybackRate(
+        player,
+        clamped,
+        status === 'playing' ? 'during_playback' : undefined
+      );
+    },
+    [player, status]
+  );
+
+  const handleAiSpeedPersist = useCallback((next: number) => {
+    const clamped = clampUiSpeed(next);
+    void saveAppSettings({ aiPlaybackSpeed: clamped });
+  }, []);
+
+  const handleAiSpeedDragEnd = useCallback(() => {
+    setSettingsScrollEnabled(true);
+    handleAiSpeedPersist(aiSpeedRef.current);
+  }, [handleAiSpeedPersist]);
+
+  const handleTextSizeChange = useCallback((next: number) => {
+    setTextSize(next);
+    void saveAppSettings({ textSize: next });
   }, []);
 
   const colors = theme;
@@ -541,13 +631,7 @@ export default function ReadingScreen() {
 
   const sentenceToId = useCallback(
     (sentence: string) =>
-      Promise.resolve(
-        sentenceToMobileId(
-          sentence,
-          mapTtsVoiceToApi(ttsVoiceTypeRef.current),
-          aiSpeedRef.current
-        )
-      ),
+      Promise.resolve(sentenceToMobileId(sentence, mapTtsVoiceToApi(ttsVoiceTypeRef.current))),
     []
   );
 
@@ -555,17 +639,39 @@ export default function ReadingScreen() {
     if (inFlightFetchRef.current.hasInFlight(sentenceId)) {
       console.log('[TTS:Mobile] duplicate fetch blocked sentenceId=', sentenceId);
     }
-    const ttsSpeed = formatTtsSpeed(aiSpeedRef.current);
+    const ttsText = truncateForTtsRequest(sentence);
+    if (ttsText.length < sentence.trim().length) {
+      console.log(
+        `[LONG_TEXT] processing chunk=truncated len=${ttsText.length} max=${MAX_TTS_CHUNK_CHARS}`
+      );
+    }
     return inFlightFetchRef.current.getOrFetch(sentenceId, async () => {
-      const response = await fetch(`${API_BASE_URL}/tts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: sentence,
-          voice: mapTtsVoiceToApi(ttsVoiceTypeRef.current),
-          speed: Number(ttsSpeed),
-        }),
-      });
+      let response: Response;
+      try {
+        response = await fetchWithTimeout(
+          `${API_BASE_URL}/tts`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: ttsText,
+              voice: mapTtsVoiceToApi(ttsVoiceTypeRef.current),
+              speed: TTS_GENERATION_SPEED,
+              locale: resolveTtsLocaleWithFallback(
+                dictionarySettingsRef.current.practiceLanguage
+              ).locale,
+              languageId: dictionarySettingsRef.current.practiceLanguage,
+            }),
+          },
+          REQUEST_TIMEOUT_MS.tts,
+          'tts'
+        );
+      } catch (err) {
+        if (err instanceof RequestTimeoutError) {
+          throw new Error('Audio fetch timed out. Tap AI to retry this chunk.');
+        }
+        throw err;
+      }
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.ok || typeof data.audioBase64 !== 'string') {
         const msg =
@@ -579,6 +685,7 @@ export default function ReadingScreen() {
         'totalNetworkRequests=',
         totalNetworkRequestsRef.current
       );
+      console.log('[LONG_TEXT] chunkSuccess index=network sentenceId=', sentenceId);
       return base64ToBytes(data.audioBase64);
     });
   }, []);
@@ -609,9 +716,98 @@ export default function ReadingScreen() {
     }
   }, [guard, player, releaseShadowGuard, setShadowPhaseSync]);
 
-  const syncSentencesFromText = useCallback(
-    (raw: string, unit: ReadUnit = readUnitRef.current, forceResetIndex = false) => {
-      const parts = createReadingChunks(raw, unit);
+  const interruptForAppLifecycle = useCallback(
+    async (nextState: string) => {
+      const phase = shadowPhaseRef.current;
+      const wasRecording = phase === 'recording' || phase === 'starting';
+      const wasAudioBusy =
+        statusRef.current === 'fetching' ||
+        statusRef.current === 'playing' ||
+        phase === 'playing' ||
+        player.isPlaying();
+
+      if (wasAudioBusy || wasRecording) {
+        console.log(playbackCleanupLogMessage(nextState));
+      }
+
+      playbackGenRef.current += 1;
+      shadowPlayGenRef.current += 1;
+      shadowRecordGenRef.current += 1;
+      fetchingStartedAtRef.current = null;
+
+      if (wasAudioBusy) {
+        console.log('[AUDIO_INTERRUPT] stopping playback');
+        player.cancel();
+      }
+
+      if (wasRecording) {
+        console.log('[RECORDING_INTERRUPT] stopping recording');
+        await disposeShadowRecordingSession();
+        setShadowPhaseSync('idle');
+      }
+
+      releaseShadowGuard();
+      const guardWasBusy = guard.getActive() !== 'idle';
+      guard.cancel();
+      if (guardWasBusy || wasAudioBusy || wasRecording) {
+        console.log(OPERATION_GUARD_BACKGROUND_RELEASE_LOG);
+      }
+
+      setNavigating(false);
+      setAiGenerating(false);
+
+      if (ocrLoadingRef.current) {
+        setOcrLoading(false);
+      }
+
+      if (wasAudioBusy || wasRecording || statusRef.current === 'fetching') {
+        setStatus('idle');
+        setStatusDetail('Paused — tap AI or Shadow to continue.');
+      }
+    },
+    [guard, player, releaseShadowGuard, setShadowPhaseSync]
+  );
+
+  const recoverAppActive = useCallback(() => {
+    applyAiPlaybackRate(player, aiSpeedRef.current, 'app_active_recovery');
+
+    const needsForceIdle = shouldForceIdleOnActiveRecovery(
+      statusRef.current,
+      shadowPhaseRef.current,
+      guard.getActive()
+    );
+
+    if (needsForceIdle) {
+      playbackGenRef.current += 1;
+      player.cancel();
+      releaseShadowGuard();
+      guard.cancel();
+      console.log(OPERATION_GUARD_BACKGROUND_RELEASE_LOG);
+      setShadowPhaseSync('idle');
+      setNavigating(false);
+      setAiGenerating(false);
+      fetchingStartedAtRef.current = null;
+      setStatus('idle');
+      setStatusDetail('Paused — tap AI or Shadow to continue.');
+    } else {
+      setNavigating(false);
+      setAiGenerating(false);
+      if (guard.getActive() !== 'idle') {
+        guard.cancel();
+        console.log(OPERATION_GUARD_BACKGROUND_RELEASE_LOG);
+      }
+    }
+
+    console.log(APPSTATE_ACTIVE_RECOVERY_LOG);
+  }, [guard, player, releaseShadowGuard, setShadowPhaseSync]);
+
+  const applySentenceParts = useCallback(
+    (
+      parts: string[],
+      raw: string,
+      forceResetIndex: boolean,
+      centerIndex = sentenceIndexRef.current
+    ) => {
       const prevFirst = sentencesRef.current[0]?.trim() ?? '';
       const nextFirst = parts[0]?.trim() ?? '';
       const textReplaced =
@@ -627,25 +823,65 @@ export default function ReadingScreen() {
         sentenceIndexRef.current = next;
         return next;
       });
-    if (parts.length > 0) {
-      const voice = mapTtsVoiceToApi(ttsVoiceTypeRef.current);
-      const speed = aiSpeedRef.current;
-      const keepIds = parts.map((s) => sentenceToMobileId(s, voice, speed));
-      void pruneSentenceCacheToKeepIds(keepIds).catch((err) => {
-        console.error('[TTS:Mobile] prune cache after text sync failed:', err);
-      });
-      console.log(
-        '[TTS:Mobile] text_ready sentences=',
-        parts.length,
-        'textLen=',
-        raw.trim().length
-      );
-      setStatusDetail(`Ready — 1 of ${parts.length}.`);
-    } else {
-      setStatusDetail('Paste or write text to begin.');
-    }
-    return parts;
-  }, []);
+
+      if (parts.length > 0) {
+        const voice = mapTtsVoiceToApi(ttsVoiceTypeRef.current);
+        const keepIds = selectCacheKeepIds(parts, centerIndex, (s) =>
+          sentenceToMobileId(s, voice)
+        );
+        void pruneSentenceCacheToKeepIds(keepIds).catch((err) => {
+          console.error('[TTS:Mobile] prune cache after text sync failed:', err);
+        });
+        console.log(
+          '[TTS:Mobile] text_ready sentences=',
+          parts.length,
+          'textLen=',
+          raw.trim().length
+        );
+        setStatusDetail(formatLongTextStatus(sentenceIndexRef.current, parts.length));
+      } else {
+        setStatusDetail('Paste or write text to begin.');
+      }
+      return parts;
+    },
+    []
+  );
+
+  const syncSentencesFromText = useCallback(
+    (raw: string, unit: ReadUnit = readUnitRef.current, forceResetIndex = false) => {
+      const parts = createSafeReadingChunks(raw, unit);
+      return applySentenceParts(parts, raw, forceResetIndex);
+    },
+    [applySentenceParts]
+  );
+
+  const syncSentencesFromTextAsync = useCallback(
+    async (
+      raw: string,
+      unit: ReadUnit = readUnitRef.current,
+      forceResetIndex = false
+    ) => {
+      const syncGen = chunkSyncGenRef.current + 1;
+      chunkSyncGenRef.current = syncGen;
+      const trimmed = raw.trim();
+
+      if (trimmed.length >= ASYNC_CHUNKING_THRESHOLD) {
+        setStatusDetail('Preparing text chunks…');
+      }
+
+      const parts =
+        trimmed.length >= ASYNC_CHUNKING_THRESHOLD
+          ? await createSafeReadingChunksAsync(trimmed, unit)
+          : createSafeReadingChunks(trimmed, unit);
+
+      if (chunkSyncGenRef.current !== syncGen) {
+        return parts;
+      }
+
+      return applySentenceParts(parts, raw, forceResetIndex);
+    },
+    [applySentenceParts]
+  );
 
   const commitReadingText = useCallback(
     (unit: ReadUnit = readUnitRef.current) => syncSentencesFromText(textRef.current, unit),
@@ -672,7 +908,7 @@ export default function ReadingScreen() {
     } else {
       const active = sentencesRef.current;
       persistText = deriveReadingTextForPersist(textRef.current, active);
-      parts = persistText.trim() ? createReadingChunks(persistText, unit) : [];
+      parts = persistText.trim() ? createSafeReadingChunks(persistText, unit) : [];
     }
 
     const raw = persistText.trim();
@@ -690,7 +926,7 @@ export default function ReadingScreen() {
     const idx = Math.min(Math.max(0, sentenceIndexRef.current), maxIdx);
     const sentence = parts[idx] ?? '';
     const sentenceId = sentence
-      ? sentenceToMobileId(sentence, mapTtsVoiceToApi(ttsVoiceTypeRef.current), aiSpeedRef.current)
+      ? sentenceToMobileId(sentence, mapTtsVoiceToApi(ttsVoiceTypeRef.current))
       : null;
     await saveReadingSession({
       version: 1,
@@ -727,8 +963,7 @@ export default function ReadingScreen() {
         setReadUnit(unit);
         readUnitRef.current = unit;
         if (session.aiSpeed > 0) {
-          setAiSpeed(session.aiSpeed);
-          aiSpeedRef.current = session.aiSpeed;
+          logAiSpeedPersisted(clampUiSpeed(session.aiSpeed));
         }
         if (session.ttsVoiceType === 'male' || session.ttsVoiceType === 'female') {
           setTtsVoiceType(session.ttsVoiceType);
@@ -738,18 +973,13 @@ export default function ReadingScreen() {
           session.ttsVoiceType === 'male' || session.ttsVoiceType === 'female'
             ? session.ttsVoiceType
             : DEFAULT_TTS_VOICE;
-        const parts = createReadingChunks(session.text, unit);
+        const parts = createSafeReadingChunks(session.text, unit);
         setSentences(parts);
         const idx = resolveRestoredSentenceIndex(
           parts,
           session.sentenceIndex,
           session.sentenceId,
-          (s) =>
-            sentenceToMobileId(
-              s,
-              mapTtsVoiceToApi(restoredVoice),
-              session.aiSpeed > 0 ? session.aiSpeed : DEFAULT_AI_SPEED
-            )
+          (s) => sentenceToMobileId(s, mapTtsVoiceToApi(restoredVoice))
         );
         sentenceIndexRef.current = idx;
         setSentenceIndex(idx);
@@ -786,7 +1016,7 @@ export default function ReadingScreen() {
         setText(seed);
         setReadUnit(DEFAULT_READ_UNIT);
         readUnitRef.current = DEFAULT_READ_UNIT;
-        const parts = createReadingChunks(seed, DEFAULT_READ_UNIT);
+        const parts = createSafeReadingChunks(seed, DEFAULT_READ_UNIT);
         setSentences(parts);
         sentenceIndexRef.current = 0;
         setSentenceIndex(0);
@@ -826,19 +1056,28 @@ export default function ReadingScreen() {
   }, [text, persistReadingSession]);
 
   const handleTextChange = useCallback((raw: string) => {
+    clearHighlightedWord('text_replaced');
     textRef.current = raw;
     setText(raw);
-  }, []);
+    if (shouldWarnLargeText(raw.length) && !largeTextWarnedRef.current) {
+      largeTextWarnedRef.current = true;
+      Alert.alert(
+        'Large text',
+        'Very long text is split into smaller chunks for playback. Processing may take a moment, but the app should stay responsive.'
+      );
+    }
+  }, [clearHighlightedWord]);
 
   useEffect(() => {
     const id = setTimeout(() => {
-      commitReadingText();
-      if (sessionHydratedRef.current) {
-        void persistReadingSession();
-      }
+      void syncSentencesFromTextAsync(textRef.current).then(() => {
+        if (sessionHydratedRef.current) {
+          void persistReadingSession();
+        }
+      });
     }, 300);
     return () => clearTimeout(id);
-  }, [text, readUnit, commitReadingText, persistReadingSession]);
+  }, [text, readUnit, syncSentencesFromTextAsync, persistReadingSession]);
 
   const playSentence = useCallback(
     async (index: number, source: PlaySource, list: string[]) => {
@@ -863,8 +1102,10 @@ export default function ReadingScreen() {
       }
 
       try {
+        console.log(`[LONG_TEXT] processing chunk=${index + 1}/${list.length}`);
         setSentenceIndex(index);
         setStatus('fetching');
+        fetchingStartedAtRef.current = Date.now();
         setStatusDetail(`Fetching audio (${source})…`);
 
         if (shouldTouchLastActivityOn('playback_start')) {
@@ -956,8 +1197,14 @@ export default function ReadingScreen() {
         } else {
           setStatusDetail(`Playing ${index + 1} of ${list.length}…`);
         }
+        const uiSpeed = aiSpeedRef.current;
+        if (source === 'replay') {
+          logAiSpeedReplay(uiSpeed);
+        }
+        logAiSpeedPlaybackStart(uiSpeed);
+        const runtimeRate = applyAiPlaybackRate(player, uiSpeed, `play_${source}`);
         const requestId = player.getNextRequestId();
-        await player.play(resolved.audioPath, requestId, { playbackRate: 1.0 });
+        await player.play(resolved.audioPath, requestId, { playbackRate: runtimeRate });
 
         if (gen !== playbackGenRef.current) {
           return;
@@ -984,11 +1231,14 @@ export default function ReadingScreen() {
         if (gen === playbackGenRef.current) {
           setStatus('error');
           const msg = err instanceof Error ? err.message : 'Playback failed';
+          console.log(`[LONG_TEXT] chunkFailed index=${index} reason=${msg}`);
           setStatusDetail(source === 'replay' ? 'Replay failed' : msg);
           console.error('[TTS:Mobile] playSentence error:', err);
         }
       } finally {
+        fetchingStartedAtRef.current = null;
         guard.release(token, 'ai_playback');
+        console.log('[OPERATION_GUARD] released after long-text op');
       }
     },
     [fetchTtsAudio, guard, logEnduranceSnapshot, player, sentenceToId]
@@ -1042,11 +1292,11 @@ export default function ReadingScreen() {
       console.log('[TTS:Mobile] nav_next_blocked reason=at_last_sentence', 'index=', sentenceIndex);
       return;
     }
+    clearHighlightedWord('navigation');
     const nextSentence = parts[next] ?? '';
     const nextId = sentenceToMobileId(
       nextSentence,
-      mapTtsVoiceToApi(ttsVoiceTypeRef.current),
-      aiSpeedRef.current
+      mapTtsVoiceToApi(ttsVoiceTypeRef.current)
     );
     sentenceIndexRef.current = next;
     setSentenceIndex(next);
@@ -1058,9 +1308,14 @@ export default function ReadingScreen() {
       'sentenceId=',
       nextId
     );
-    await persistReadingSession();
-    await playSentence(next, 'nav', parts);
-  }, [cancelPlayback, persistReadingSession, playSentence, sentenceIndex, sentences, syncSentencesFromText]);
+    setNavigating(true);
+    try {
+      await persistReadingSession();
+      await playSentence(next, 'nav', parts);
+    } finally {
+      setNavigating(false);
+    }
+  }, [cancelPlayback, clearHighlightedWord, persistReadingSession, playSentence, sentenceIndex, sentences, syncSentencesFromText]);
 
   const handleBack = useCallback(async () => {
     const parts =
@@ -1084,11 +1339,11 @@ export default function ReadingScreen() {
       console.log('[TTS:Mobile] nav_back_blocked reason=at_first_sentence', 'index=', sentenceIndex);
       return;
     }
+    clearHighlightedWord('navigation');
     const prevSentence = parts[prev] ?? '';
     const prevId = sentenceToMobileId(
       prevSentence,
-      mapTtsVoiceToApi(ttsVoiceTypeRef.current),
-      aiSpeedRef.current
+      mapTtsVoiceToApi(ttsVoiceTypeRef.current)
     );
     sentenceIndexRef.current = prev;
     setSentenceIndex(prev);
@@ -1100,20 +1355,29 @@ export default function ReadingScreen() {
       'sentenceId=',
       prevId
     );
-    await persistReadingSession();
-    await playSentence(prev, 'nav', parts);
-  }, [cancelPlayback, persistReadingSession, playSentence, sentenceIndex, sentences, syncSentencesFromText]);
+    setNavigating(true);
+    try {
+      await persistReadingSession();
+      await playSentence(prev, 'nav', parts);
+    } finally {
+      setNavigating(false);
+    }
+  }, [cancelPlayback, clearHighlightedWord, persistReadingSession, playSentence, sentenceIndex, sentences, syncSentencesFromText]);
 
   /** Internal defaults reset — not exposed in settings UI. */
   const resetSettings = useCallback(() => {
     resetTheme();
-    setAiSpeed(DEFAULT_AI_SPEED);
+    setAiSpeed(DEFAULT_UI_AI_SPEED);
     setTtsVoiceType(DEFAULT_TTS_VOICE);
     setTextSize(DEFAULT_TEXT_SIZE);
     setReadUnit(DEFAULT_READ_UNIT);
     readUnitRef.current = DEFAULT_READ_UNIT;
-    aiSpeedRef.current = DEFAULT_AI_SPEED;
+    aiSpeedRef.current = DEFAULT_UI_AI_SPEED;
     ttsVoiceTypeRef.current = DEFAULT_TTS_VOICE;
+    void saveAppSettings({
+      aiPlaybackSpeed: DEFAULT_UI_AI_SPEED,
+      textSize: DEFAULT_TEXT_SIZE,
+    });
     syncSentencesFromText(textRef.current, DEFAULT_READ_UNIT);
     setSentenceIndex(0);
     setStatusDetail('Settings reset to defaults.');
@@ -1150,14 +1414,19 @@ export default function ReadingScreen() {
     void (async () => {
       const next = await updateDictionarySettings(patch);
       setDictionarySettings(next);
+      if (patch.practiceLanguage) {
+        logPracticeLanguageSelection(next.practiceLanguage);
+      }
+      if (patch.translationLanguage) {
+        logDictionaryLanguageSelection(next.translationLanguage);
+      }
     })();
   }, []);
 
   const handleDictionaryEntriesChange = useCallback((entries: DictionaryEntry[]) => {
     void (async () => {
-      const store = await loadDictionaryStore();
-      await saveDictionaryStore({ ...store, entries });
-      setDictionaryEntries(entries);
+      const store = await mutateDictionaryStore((current) => ({ ...current, entries }));
+      setDictionaryEntries(store.entries);
     })();
   }, []);
 
@@ -1165,10 +1434,12 @@ export default function ReadingScreen() {
     async (source: 'library' | 'camera') => {
       if (ocrLoading) return;
 
+      console.log(`[OCR] image selected source=${source}`);
       const permission =
         source === 'library'
           ? await ImagePicker.requestMediaLibraryPermissionsAsync()
           : await ImagePicker.requestCameraPermissionsAsync();
+      console.log(`[OCR] permission status=${permission.granted ? 'granted' : permission.status}`);
       if (!permission.granted) {
         Alert.alert(
           'Permission needed',
@@ -1185,67 +1456,83 @@ export default function ReadingScreen() {
               mediaTypes: ImagePicker.MediaTypeOptions.Images,
               quality: 0.85,
               base64: true,
-              ...(Platform.OS === 'ios' ? { allowsEditing: true } : {}),
+              ...(Platform.OS === 'android' ? { legacy: true } : {}),
             })
           : await ImagePicker.launchCameraAsync({
               mediaTypes: ImagePicker.MediaTypeOptions.Images,
               quality: 0.85,
               base64: true,
             });
-      if (result.canceled || !result.assets[0]?.base64) return;
+      if (result.canceled) {
+        console.log('[OCR] picker canceled');
+        return;
+      }
 
       const asset = result.assets[0];
-      const mime = asset.mimeType ?? 'image/jpeg';
-      const dataUrl = `data:${mime};base64,${asset.base64}`;
+      if (!asset) {
+        Alert.alert('Photo read failed', 'No image was selected.');
+        return;
+      }
 
+      console.log(`[OCR] image selected uri=${asset.uri ?? 'missing'} hasBase64=${Boolean(asset.base64?.length)}`);
       setOcrLoading(true);
       try {
+        const dataUrl = await imageAssetToDataUrl(asset);
+        if (!dataUrl) {
+          throw new Error(
+            'Could not read image data from the selected photo. Try another image or use Camera.'
+          );
+        }
+
+        console.log('[OCR] request started');
         const extracted = await requestOcrFromImageDataUrl(dataUrl);
+        console.log(`[OCR] result length=${extracted.length}`);
         setShowSettings(false);
         handleTextChange(extracted);
-        syncSentencesFromText(extracted, readUnitRef.current, true);
+        const parts = await syncSentencesFromTextAsync(extracted, readUnitRef.current, true);
+        console.log(`[OCR] applied sentences=${parts.length} textLen=${extracted.length}`);
+        if (parts.length === 0) {
+          throw new Error('Photo text was read but could not be split into reading sentences.');
+        }
         setStatus('idle');
         setStatusDetail('Text loaded from photo.');
         void persistReadingSession();
       } catch (err) {
-        Alert.alert(
-          'Photo read failed',
-          err instanceof Error ? err.message : 'Could not read text from this image.'
-        );
+        const message =
+          err instanceof Error ? err.message : 'Could not read text from this image.';
+        console.log(`[OCR] failed reason=${message}`);
+        Alert.alert('Photo read failed', message);
       } finally {
         setOcrLoading(false);
       }
     },
-    [handleTextChange, ocrLoading, persistReadingSession, syncSentencesFromText]
+    [handleTextChange, ocrLoading, persistReadingSession, syncSentencesFromTextAsync]
   );
 
-  const openPhotoSource = useCallback(() => {
+  const handleAlbumPhotoPress = useCallback(() => {
     if (ocrLoading) return;
-    openAfterSettings(() => setShowPhotoSource(true));
-  }, [ocrLoading, openAfterSettings]);
+    openAfterSettings(() => void handlePhotoOcr('library'));
+  }, [handlePhotoOcr, ocrLoading, openAfterSettings]);
 
-  const handleAlbumPhotoPress = useCallback(() => openPhotoSource(), [openPhotoSource]);
-
-  const handlePhotoLibraryPick = useCallback(() => {
-    setShowPhotoSource(false);
-    void handlePhotoOcr('library');
-  }, [handlePhotoOcr]);
-
-  const handlePhotoCameraPick = useCallback(() => {
-    setShowPhotoSource(false);
-    void handlePhotoOcr('camera');
-  }, [handlePhotoOcr]);
+  const handleCameraPhotoPress = useCallback(() => {
+    if (ocrLoading) return;
+    openAfterSettings(() => void handlePhotoOcr('camera'));
+  }, [handlePhotoOcr, ocrLoading, openAfterSettings]);
 
   const handleWordPress = useCallback(
     (lookup: string, displayWord: string) => {
       if (!lookup || sentencesRef.current.length === 0) return;
 
-      const targetLanguage = dictionarySettings.translationLanguage;
+      const targetLanguage = dictionarySettingsRef.current.translationLanguage;
+      console.log(
+        `[LANGUAGE:TRANSLATE_REQUEST] target=${targetLanguage} word=${displayWord}`
+      );
       const existing = findDictionaryEntry(dictionaryEntriesRef.current, lookup, targetLanguage);
       const context =
         sentencesRef.current[sentenceIndexRef.current] ?? sentencesRef.current[0] ?? '';
 
       setWordLookupKey(lookup);
+      setHighlightedWord(lookup);
       setWordLookupDisplay(displayWord);
       setWordLookupVisible(true);
       setWordLookupLoading(true);
@@ -1253,7 +1540,6 @@ export default function ReadingScreen() {
       setWordLookupMeaning(existing?.meaning ?? null);
       setWordLookupPartOfSpeech(existing?.partOfSpeech ?? null);
       setWordLookupSaved(Boolean(existing));
-      setWordLookupAppearanceCount(existing?.textAppearanceCount ?? 1);
       setWordLookupCount((existing?.lookupCount ?? 0) + 1);
 
       const lookupGen = wordLookupGenRef.current + 1;
@@ -1269,63 +1555,101 @@ export default function ReadingScreen() {
 
           if (wordLookupGenRef.current !== lookupGen) return;
 
+          if (result.blocked) {
+            setWordLookupMeaning(null);
+            setWordLookupPartOfSpeech(null);
+            setWordLookupLoading(false);
+            setWordLookupError(result.userMessage ?? 'This app is for language practice, not code generation.');
+            clearHighlightedWord('lookup_error');
+            return;
+          }
+
           setWordLookupMeaning(result.meaning);
           setWordLookupPartOfSpeech(result.partOfSpeech ?? null);
           setWordLookupLoading(false);
           setWordLookupError(null);
 
-          if (existing) {
-            const store = await loadDictionaryStore();
-            const nextEntries = incrementLookupCount(store.entries, lookup, targetLanguage);
-            await saveDictionaryStore({ ...store, entries: nextEntries });
-            setDictionaryEntries(nextEntries);
-            const touched = findDictionaryEntry(nextEntries, lookup, targetLanguage);
-            setWordLookupCount(touched?.lookupCount ?? existing.lookupCount + 1);
-            setWordLookupAppearanceCount(
-              touched?.textAppearanceCount ?? existing.textAppearanceCount
-            );
-          }
+          const store = await mutateDictionaryStore(
+            (current) => ({
+              ...current,
+              entries: addMeaningWord(
+                current.entries,
+                {
+                  displayWord,
+                  meaning: result.meaning,
+                  partOfSpeech: result.partOfSpeech,
+                  targetLanguage,
+                },
+                { meaningAskedAgain: Boolean(existing) }
+              ),
+            }),
+            { word: lookup, language: targetLanguage }
+          );
+          setDictionaryEntries(store.entries);
+          const touched = findDictionaryEntry(store.entries, lookup, targetLanguage);
+          setWordLookupSaved(Boolean(touched));
+          setWordLookupCount(touched?.lookupCount ?? 1);
         } catch (err) {
           if (wordLookupGenRef.current !== lookupGen) return;
           setWordLookupLoading(false);
           setWordLookupError(err instanceof Error ? err.message : 'Lookup failed.');
+          clearHighlightedWord('lookup_error');
         }
       })();
     },
-    [dictionarySettings.translationLanguage]
+    [clearHighlightedWord, dictionarySettings.translationLanguage, setHighlightedWord]
   );
+
+  const handleWordLookupClose = useCallback(() => {
+    wordLookupGenRef.current += 1;
+    setWordLookupVisible(false);
+    clearHighlightedWord('lookup_closed');
+  }, [clearHighlightedWord]);
 
   const handleWordLookupToggleSave = useCallback(() => {
     if (!wordLookupKey || !wordLookupMeaning || wordLookupLoading) return;
 
     void (async () => {
       const targetLanguage = dictionarySettings.translationLanguage;
-      const store = await loadDictionaryStore();
 
       if (wordLookupSaved) {
-        const nextEntries = removeDictionaryEntry(store.entries, wordLookupKey, targetLanguage);
-        await saveDictionaryStore({ ...store, entries: nextEntries });
-        setDictionaryEntries(nextEntries);
+        const store = await mutateDictionaryStore(
+          (current) => ({
+            ...current,
+            entries: removeDictionaryEntry(current.entries, wordLookupKey, targetLanguage),
+          }),
+          { word: wordLookupKey, language: targetLanguage }
+        );
+        setDictionaryEntries(store.entries);
         setWordLookupSaved(false);
         return;
       }
 
       const textHash = hashReadingText(textRef.current);
-      const withAppearance = recordWordInReadingText(store.entries, textRef.current, textHash);
-      const nextEntries = upsertDictionaryEntry(withAppearance, {
-        displayWord: wordLookupDisplay,
-        meaning: wordLookupMeaning,
-        partOfSpeech: wordLookupPartOfSpeech ?? undefined,
-        targetLanguage,
-        textAppearanceCount:
-          findDictionaryEntry(withAppearance, wordLookupKey, targetLanguage)?.textAppearanceCount ?? 1,
-      });
-      const saved = findDictionaryEntry(nextEntries, wordLookupKey, targetLanguage);
-      await saveDictionaryStore({ ...store, entries: nextEntries });
-      setDictionaryEntries(nextEntries);
+      const store = await mutateDictionaryStore(
+        (current) => {
+          const withAppearance = recordWordInReadingText(
+            current.entries,
+            textRef.current,
+            textHash
+          );
+          const nextEntries = upsertDictionaryEntry(withAppearance, {
+            displayWord: wordLookupDisplay,
+            meaning: wordLookupMeaning,
+            partOfSpeech: wordLookupPartOfSpeech ?? undefined,
+            targetLanguage,
+            textAppearanceCount:
+              findDictionaryEntry(withAppearance, wordLookupKey, targetLanguage)
+                ?.textAppearanceCount ?? 1,
+          });
+          return { ...current, entries: nextEntries };
+        },
+        { word: wordLookupKey, language: targetLanguage }
+      );
+      const saved = findDictionaryEntry(store.entries, wordLookupKey, targetLanguage);
+      setDictionaryEntries(store.entries);
       setWordLookupSaved(true);
       setWordLookupCount(saved?.lookupCount ?? 1);
-      setWordLookupAppearanceCount(saved?.textAppearanceCount ?? 1);
     })();
   }, [
     dictionarySettings.translationLanguage,
@@ -1338,33 +1662,35 @@ export default function ReadingScreen() {
   ]);
 
   const handleAiGenerated = useCallback(
-    (generatedText: string, meta?: { practiceWords?: string[] }) => {
+    (generatedText: string, meta?: { practiceWordDetails?: PracticeWordForAi[] }) => {
       cancelPlayback();
       handleTextChange(generatedText);
-      syncSentencesFromText(generatedText, readUnitRef.current, true);
+      void syncSentencesFromTextAsync(generatedText, readUnitRef.current, true);
       setShowAiPrompt(false);
       setShowSettings(false);
 
-      const practiced = meta?.practiceWords ?? [];
+      const practiced = meta?.practiceWordDetails ?? [];
       if (practiced.length > 0) {
-        const nextEntries = removePracticeWordsUsedInAiText(
-          dictionaryEntriesRef.current,
-          generatedText,
-          practiced
-        );
-        if (nextEntries.length !== dictionaryEntriesRef.current.length) {
-          handleDictionaryEntriesChange(nextEntries);
-        }
+        void (async () => {
+          const store = await mutateDictionaryStore((current) => ({
+            ...current,
+            entries: recordPracticeUsageAfterAiGeneration(
+              current.entries,
+              generatedText,
+              practiced
+            ),
+          }));
+          setDictionaryEntries(store.entries);
+        })();
       }
 
       void persistReadingSession();
     },
     [
       cancelPlayback,
-      handleDictionaryEntriesChange,
       handleTextChange,
       persistReadingSession,
-      syncSentencesFromText,
+      syncSentencesFromTextAsync,
     ]
   );
 
@@ -1388,13 +1714,7 @@ export default function ReadingScreen() {
       const uri = await stopShadowRecordingSession();
       releaseShadowGuard();
       setShadowPhaseSync('idle');
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        staysActiveInBackground: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
+      await configurePlaybackAudioMode();
 
       if (!uri) {
         setStatus('error');
@@ -1434,8 +1754,7 @@ export default function ReadingScreen() {
         const sentence = parts[idx] ?? '';
         const sentenceId = sentenceToMobileId(
           sentence,
-          mapTtsVoiceToApi(ttsVoiceTypeRef.current),
-          aiSpeedRef.current
+          mapTtsVoiceToApi(ttsVoiceTypeRef.current)
         );
         const cachedPath = await getCachedSentenceAudio(sentenceId);
 
@@ -1480,7 +1799,7 @@ export default function ReadingScreen() {
       }
       setShadowHint(
         mic.blocked
-          ? 'Microphone blocked. Open Settings → Zaban TTS → Permissions → Microphone.'
+          ? `Microphone blocked. Open Settings → ${BRANDING.appName} → Permissions → Microphone.`
           : 'Microphone needed for Shadow. Tap SHADOW again and tap Allow on the prompt.'
       );
       return;
@@ -1575,10 +1894,16 @@ export default function ReadingScreen() {
       });
       void logEnduranceSnapshot(`app_state_${next}`);
 
-      if (next === 'background' || next === 'inactive') {
+      if (shouldCleanupPlaybackOnAppState(next)) {
+        clearHighlightedWord('app_background');
+        void interruptForAppLifecycle(next);
         void (async () => {
           await persistReadingSession();
         })();
+      }
+
+      if (next === 'active' && previous !== 'active') {
+        recoverAppActive();
       }
 
       if (!shouldRunIdleCacheCheckOnAppState(next)) {
@@ -1596,7 +1921,7 @@ export default function ReadingScreen() {
       })();
     });
     return () => sub.remove();
-  }, [guard, logEnduranceSnapshot, persistReadingSession, player]);
+  }, [clearHighlightedWord, guard, interruptForAppLifecycle, logEnduranceSnapshot, persistReadingSession, player, recoverAppActive]);
 
   const total = sentences.length;
   const currentSentence =
@@ -1610,6 +1935,42 @@ export default function ReadingScreen() {
     ? 'Shadow recording… tap again to stop and play'
     : shadowHint ?? statusDetail;
   const waveformActive = aiBusy || shadowPlaying;
+  const adInteractionInput = useMemo(
+    () => ({
+      status,
+      shadowPhase,
+      ocrLoading,
+      wordLookupLoading,
+      isGenerating: aiGenerating,
+      isNavigating: navigating,
+      showPracticeTextInput: showTextInput,
+      showAiPrompt,
+      wordLookupVisible,
+      appStateActive,
+      operationGuardActive: guard.getActive() !== 'idle',
+    }),
+    [
+      status,
+      shadowPhase,
+      ocrLoading,
+      wordLookupLoading,
+      aiGenerating,
+      navigating,
+      showTextInput,
+      showAiPrompt,
+      wordLookupVisible,
+      appStateActive,
+      guard,
+    ]
+  );
+  const adInteraction = useMemo(
+    () => deriveAdInteractionState(adInteractionInput),
+    [adInteractionInput]
+  );
+  const adBusyStateLog = useMemo(
+    () => formatAdBusyStateLog(adInteractionInput, adInteraction),
+    [adInteractionInput, adInteraction]
+  );
   const showStatusHint =
     status !== 'idle' ||
     shadowRecording ||
@@ -1635,18 +1996,21 @@ export default function ReadingScreen() {
   }, [sentenceIndex, currentSentence, sentenceFade]);
 
   useEffect(() => {
-    const duration = shadowRecording ? 700 : 2200;
-    const peak = shadowRecording ? 1.035 : 1.022;
+    if (!shadowRecording) {
+      micBreath.stopAnimation();
+      micBreath.setValue(1);
+      return;
+    }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(micBreath, {
-          toValue: peak,
-          duration,
+          toValue: 1.035,
+          duration: 700,
           useNativeDriver: true,
         }),
         Animated.timing(micBreath, {
           toValue: 1,
-          duration,
+          duration: 700,
           useNativeDriver: true,
         }),
       ])
@@ -1682,13 +2046,15 @@ export default function ReadingScreen() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar style={colors.statusBar} />
-      <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={['top']}>
+      <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={['top', 'bottom']}>
         <AtmosphereBackground theme={theme} />
-        <Animated.View style={[styles.container, { opacity: themeFade }]}>
+        <Animated.View
+          style={[styles.container, styles.tabletShell, { opacity: themeFade, maxWidth: contentMaxWidth }]}
+        >
           <TopAmbientBar
             theme={theme}
             onMenuPress={() => setShowSettings(true)}
-            onAlbumPress={handleAlbumPhotoPress}
+            onCameraPress={handleCameraPhotoPress}
             onDicPress={() => setShowDictionarySettings(true)}
             photoLoading={ocrLoading}
           />
@@ -1710,16 +2076,17 @@ export default function ReadingScreen() {
                   scrollEnabled={settingsScrollEnabled}
                 >
                   <View style={styles.settingsHeader}>
-                    <View style={styles.settingsTitleRow}>
-                      <Text style={[styles.settingsTitle, { color: colors.textDim }]}>Settings</Text>
-                      <Text
-                        style={[styles.settingsVersion, { color: colors.textMuted }]}
-                        testID={READING_TEST_IDS.settingsVersion}
-                      >
-                        {appVersionLabel}
-                      </Text>
-                    </View>
+                    <View style={styles.settingsHeaderSide} />
+                    <Text
+                      style={[styles.settingsHeaderCenter, { color: colors.textDim }]}
+                      testID={READING_TEST_IDS.settingsVersion}
+                      accessibilityLabel={formatSettingsHeaderTitle(appVersionLabel)}
+                      numberOfLines={1}
+                    >
+                      {formatSettingsHeaderTitle(appVersionLabel)}
+                    </Text>
                     <Pressable
+                      style={styles.settingsHeaderSide}
                       onPress={() => setShowSettings(false)}
                       hitSlop={8}
                       accessibilityRole="button"
@@ -1738,6 +2105,24 @@ export default function ReadingScreen() {
                       disabled={busy}
                     />
                   </View>
+
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.helpLink,
+                      { borderColor: colors.border, backgroundColor: colors.bg },
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    onPress={() => {
+                      openAfterSettings(() => router.push('/onboarding?mode=review'));
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="How to use Mamlio"
+                    testID={READING_TEST_IDS.settingsHelp}
+                  >
+                    <Text style={[styles.helpLinkLabel, { color: colors.textMuted }]}>
+                      How to use Mamlio
+                    </Text>
+                  </Pressable>
 
                   <View style={styles.settingsActions}>
                     <View style={styles.settingsTopRow}>
@@ -1778,6 +2163,28 @@ export default function ReadingScreen() {
                           )}
                           <Text style={[styles.settingsTileCompactLabel, { color: colors.textMuted }]}>
                             {ocrLoading ? 'Reading…' : 'Album'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.settingsTileCompact,
+                            { borderColor: colors.border, backgroundColor: colors.bg },
+                            pressed && { opacity: 0.85 },
+                            ocrLoading && { opacity: 0.6 },
+                          ]}
+                          onPress={handleCameraPhotoPress}
+                          disabled={ocrLoading}
+                          accessibilityRole="button"
+                          accessibilityLabel="Take photo with camera"
+                          testID={READING_TEST_IDS.settingsCamera}
+                        >
+                          {ocrLoading ? (
+                            <ActivityIndicator size="small" color={colors.accent} />
+                          ) : (
+                            <Text style={styles.settingsTileCompactIcon}>📷</Text>
+                          )}
+                          <Text style={[styles.settingsTileCompactLabel, { color: colors.textMuted }]}>
+                            {ocrLoading ? 'Reading…' : 'Camera'}
                           </Text>
                         </Pressable>
                       </View>
@@ -1822,9 +2229,6 @@ export default function ReadingScreen() {
                     </View>
                   </View>
 
-                  <Text style={[styles.settingsSectionLabel, { color: colors.textDim }]}>
-                    Voice type
-                  </Text>
                   <View style={styles.voiceTypeRow}>
                     {(['female', 'male'] as const).map((voice) => {
                       const selected = ttsVoiceType === voice;
@@ -1858,70 +2262,72 @@ export default function ReadingScreen() {
                     })}
                   </View>
 
-                  <View style={styles.inlineSettingRow}>
+                  <View style={styles.stackedSettingBlock}>
                     <Text
-                      style={[styles.settingsSectionLabel, styles.inlineSettingLabel, { color: colors.textDim }]}
+                      style={[styles.aiSpeedMicroLabel, { color: colors.textMuted }]}
+                      testID={READING_TEST_IDS.settingsAiSpeedLabel}
+                      accessibilityRole="text"
                     >
-                      AI SPEED: {aiSpeed.toFixed(1)}x
+                      {formatAiSpeedLabel(aiSpeed)}
                     </Text>
-                    <View style={styles.inlineSettingControl}>
-                      <SliderEndpointRow
+                    <SliderEndpointRow
+                      value={aiSpeed}
+                      min={MIN_UI_AI_SPEED}
+                      max={MAX_UI_AI_SPEED}
+                      mutedColor={colors.textMuted}
+                      accentColor={colors.accent}
+                      preset="aiSpeed"
+                      labelMarginBottom={0}
+                      inline
+                    >
+                      <SettingSlider
+                        testID={READING_TEST_IDS.settingsAiSpeedSlider}
                         value={aiSpeed}
-                        min={0.5}
-                        max={1.5}
-                        mutedColor={colors.textMuted}
-                        accentColor={colors.accent}
-                        preset="aiSpeed"
-                        labelMarginBottom={0}
-                        inline
-                      >
+                        min={MIN_UI_AI_SPEED}
+                        max={MAX_UI_AI_SPEED}
+                        step={AI_SPEED_SLIDER_STEP}
+                        onChange={handleAiSpeedLiveChange}
+                        onDragStart={handleSliderDragStart}
+                        onDragEnd={handleAiSpeedDragEnd}
+                        accent={colors.slider.fill}
+                        border={colors.slider.border}
+                        track={colors.slider.track}
+                        micro
+                        bilateral
+                      />
+                    </SliderEndpointRow>
+                  </View>
+
+                  <View style={styles.stackedSettingBlock}>
+                    <Text
+                      style={[styles.textSizeHeading, { color: colors.textDim }]}
+                      accessibilityRole="text"
+                    >
+                      TEXT SIZE · {textSize}
+                    </Text>
+                    <View style={styles.microSliderRow}>
+                      <Text style={[styles.microEndpointAa, { color: colors.textMuted }]}>Aa</Text>
+                      <View style={styles.microSliderTrack}>
                         <SettingSlider
-                          value={aiSpeed}
-                          min={0.5}
-                          max={1.5}
-                          step={0.1}
-                          onChange={handleAiSpeedChange}
+                          value={textSize}
+                          min={SETTINGS_TEXT_SIZE_MIN}
+                          max={SETTINGS_TEXT_SIZE_MAX}
+                          step={2}
+                          onChange={handleTextSizeChange}
                           onDragStart={handleSliderDragStart}
                           onDragEnd={handleSliderDragEnd}
                           accent={colors.slider.fill}
                           border={colors.slider.border}
                           track={colors.slider.track}
-                          compact
+                          micro
                           bilateral
                         />
-                      </SliderEndpointRow>
-                    </View>
-                  </View>
-
-                  <View style={styles.inlineSettingRow}>
-                    <Text
-                      style={[styles.settingsSectionLabel, styles.inlineSettingLabel, { color: colors.textDim }]}
-                    >
-                      Text size: {textSize}
-                    </Text>
-                    <View style={styles.inlineSettingControl}>
-                      <View style={styles.inlineTextSizeSlider}>
-                        <Text style={[styles.sliderEndpointLabel, { color: colors.textMuted }]}>Aa</Text>
-                        <View style={styles.inlineSliderTrack}>
-                          <SettingSlider
-                            value={textSize}
-                            min={22}
-                            max={48}
-                            step={2}
-                            onChange={setTextSize}
-                            onDragStart={handleSliderDragStart}
-                            onDragEnd={handleSliderDragEnd}
-                            accent={colors.slider.fill}
-                            border={colors.slider.border}
-                            track={colors.slider.track}
-                            compact
-                            bilateral
-                          />
-                        </View>
-                        <Text style={[styles.sliderEndpointLabel, { color: colors.textMuted, fontSize: 15 }]}>
-                          Aa
-                        </Text>
                       </View>
+                      <Text
+                        style={[styles.microEndpointAa, styles.microEndpointAaLarge, { color: colors.textMuted }]}
+                      >
+                        Aa
+                      </Text>
                     </View>
                   </View>
                 </ScrollView>
@@ -1937,7 +2343,7 @@ export default function ReadingScreen() {
             opacity={sentenceFade}
             waveformActive={waveformActive}
             onWordPress={total > 0 ? handleWordPress : undefined}
-            selectedWord={wordLookupKey}
+            selectedWord={highlightedWord}
           />
 
           {showStatusHint ? (
@@ -1993,7 +2399,18 @@ export default function ReadingScreen() {
             />
           </View>
         </Animated.View>
-        <AdBanner backgroundColor={colors.bg} />
+        <View
+          style={styles.adSafeGap}
+          testID={READING_TEST_IDS.adSafeGap}
+          pointerEvents="none"
+        />
+        <AdBanner
+          themeId={themeId}
+          interactionSafeForAds={adInteraction.interactionSafeForAds}
+          busyStateSummary={adBusyStateLog}
+          safeDistanceFromControls={AD_BANNER_SAFE_DISTANCE_FROM_CONTROLS}
+          backgroundColor={colors.bg}
+        />
       </SafeAreaView>
 
       <PracticeTextModal
@@ -2005,15 +2422,6 @@ export default function ReadingScreen() {
         onChangeText={handleTextChange}
         onBlurCommit={commitReadingText}
         editable={!busy}
-      />
-
-      <PhotoSourceModal
-        visible={showPhotoSource}
-        onClose={() => setShowPhotoSource(false)}
-        theme={theme}
-        onPickLibrary={handlePhotoLibraryPick}
-        onPickCamera={handlePhotoCameraPick}
-        loading={ocrLoading}
       />
 
       <DictionarySettingsModal
@@ -2029,13 +2437,15 @@ export default function ReadingScreen() {
       <AiPromptModal
         visible={showAiPrompt}
         onClose={() => setShowAiPrompt(false)}
+        onGeneratingChange={setAiGenerating}
         onGenerated={handleAiGenerated}
         apiBaseUrl={API_BASE_URL}
         theme={theme}
         themeId={themeId}
-        practiceWords={aiPracticeWords}
+        practiceWordDetails={aiPracticeBatch}
+        dictionaryTargetLanguage={dictionarySettings.practiceLanguage}
         useDictionaryInAi={
-          dictionarySettings.useDictionaryInAi && aiPracticeWords.length > 0
+          dictionarySettings.useDictionaryInAi && aiPracticeBatch.length > 0
         }
       />
 
@@ -2049,10 +2459,12 @@ export default function ReadingScreen() {
         loading={wordLookupLoading}
         error={wordLookupError}
         savedToDictionary={wordLookupSaved}
-        textAppearanceCount={wordLookupAppearanceCount}
+        practiceUsedCount={activeWordPractice?.usedCount ?? 0}
+        practiceTargetUses={activeWordPractice?.targetUses ?? 3}
+        practiceStarred={activeWordPractice?.difficultyStarred ?? false}
         lookupCount={wordLookupCount}
         canToggleSave={Boolean(wordLookupMeaning) && !wordLookupLoading && !wordLookupError}
-        onClose={() => setWordLookupVisible(false)}
+        onClose={handleWordLookupClose}
         onToggleSave={handleWordLookupToggleSave}
       />
     </>
@@ -2062,6 +2474,10 @@ export default function ReadingScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: 'transparent' },
   container: { flex: 1, backgroundColor: 'transparent' },
+  tabletShell: {
+    width: '100%',
+    alignSelf: 'center',
+  },
   themeSwitcherWrap: {
     marginBottom: 12,
     alignItems: 'center',
@@ -2081,28 +2497,34 @@ const styles = StyleSheet.create({
   },
   settingsHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
-  settingsTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 8,
-    flexShrink: 1,
+  settingsHeaderSide: {
+    width: 32,
+    alignItems: 'flex-end',
   },
-  settingsTitle: {
+  settingsHeaderCenter: {
+    flex: 1,
+    textAlign: 'center',
     fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 2,
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
   },
-  settingsVersion: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.4,
-  },
   settingsClose: { fontSize: 18, padding: 4 },
+  helpLink: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  helpLinkLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
   settingsGrid: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -2171,7 +2593,7 @@ const styles = StyleSheet.create({
     width: '52%',
     maxWidth: 176,
     gap: 6,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   voiceTypeBtn: {
     flex: 1,
@@ -2188,33 +2610,42 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-  inlineSettingRow: {
+  stackedSettingBlock: {
+    marginBottom: 12,
+  },
+  aiSpeedMicroLabel: {
+    fontSize: 7,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    marginBottom: 3,
+  },
+  textSizeHeading: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  microSliderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
+    gap: 4,
   },
-  inlineSettingLabel: {
-    width: 92,
-    marginBottom: 0,
-    flexShrink: 0,
-  },
-  inlineSettingControl: {
+  microSliderTrack: {
     flex: 1,
     minWidth: 0,
   },
-  inlineTextSizeSlider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  inlineSliderTrack: {
-    flex: 1,
-    minWidth: 0,
-  },
-  sliderEndpointLabel: {
-    fontSize: 11,
+  microEndpointAa: {
+    fontSize: 8,
     fontWeight: '600',
+    width: 14,
+    textAlign: 'center',
+  },
+  microEndpointAaLarge: {
+    fontSize: 11,
   },
   textSizeLabels: {
     flexDirection: 'row',
@@ -2291,11 +2722,15 @@ const styles = StyleSheet.create({
   },
   controlsDock: {
     paddingTop: space.xs,
-    paddingBottom: space.md,
+    paddingBottom: 0,
     gap: space.lg,
     alignItems: 'center',
     backgroundColor: 'transparent',
     zIndex: 8,
+    width: '100%',
+  },
+  adSafeGap: {
+    height: Math.max(AD_SAFE_GAP_DP, AD_BANNER_SAFE_DISTANCE_FROM_CONTROLS),
     width: '100%',
   },
 });

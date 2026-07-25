@@ -2,11 +2,30 @@
  * Detect target output language from a free-form AI generate prompt.
  * Supports English and Persian (Farsi) phrasing plus common native language names.
  *
- * @typedef {{ language: string, code: string, explicit: boolean }} ResolvedLanguage
+ * @typedef {{ language: string, code: string, explicit: boolean, locale?: string, instruction?: string }} ResolvedLanguage
  */
+
+import {
+  LANGUAGE_BY_CODE as DICTIONARY_LANGUAGE_BY_CODE,
+  getAiInstruction,
+  migrateLanguageId,
+  resolveDictionaryLanguage,
+  resolvePracticeLanguage,
+  DEFAULT_PRACTICE_LANGUAGE,
+} from '@zaban/dictionary-languages';
+
+export { migrateLanguageId, resolvePracticeLanguage, getAiInstruction, DEFAULT_PRACTICE_LANGUAGE };
 
 /** @type {Array<{ language: string, code: string, patterns: RegExp[] }>} */
 const LANGUAGE_RULES = [
+  {
+    language: 'English',
+    code: 'en',
+    patterns: [
+      /\b(english|in english)\b/i,
+      /(?:به\s+)?(?:زبان\s+)?(?:انگلیسی|انگلیس)(?![\u0600-\u06FF])/,
+    ],
+  },
   {
     language: 'German',
     code: 'de',
@@ -29,8 +48,11 @@ const LANGUAGE_RULES = [
     language: 'Turkish',
     code: 'tr',
     patterns: [
-      /\b(turkish|t[uü]rk[cç]e|turkce)\b/i,
-      /(?:به\s+)?(?:زبان\s+)?(?:ترکی|ترک|ترکیه|ترك)/,
+      /\b(?:in|write|practice|learn|speak)\s+turkish\b/i,
+      /\bturkish\s+(?:text|story|passage|practice|reading)\b/i,
+      /\b(t[uü]rk[cç]e|turkce)\b/i,
+      /(?:به\s+)(?:زبان\s+)?(?:ترکی|ترک)(?:\s|$|[،.!?])/,
+      /(?:زبان\s+)(?:ترکی|ترک)(?:\s|$|[،.!?])/,
       /\b(torki|turki|be\s+torki)\b/i,
     ],
   },
@@ -99,6 +121,16 @@ const LANGUAGE_RULES = [
     ],
   },
   {
+    language: 'Hindi',
+    code: 'hi',
+    patterns: [/\b(hindi)\b/i, /(?:به\s+)?(?:زبان\s+)?(?:هندی|هند)/],
+  },
+  {
+    language: 'Urdu',
+    code: 'ur',
+    patterns: [/\b(urdu)\b/i, /(?:به\s+)?(?:زبان\s+)?(?:اردو)/],
+  },
+  {
     language: 'Korean',
     code: 'ko',
     patterns: [
@@ -106,42 +138,92 @@ const LANGUAGE_RULES = [
       /(?:به\s+)?(?:زبان\s+)?(?:کره‌ای|کره)/,
     ],
   },
-  {
-    language: 'English',
-    code: 'en',
-    patterns: [
-      /\b(english|in english)\b/i,
-      /(?:به\s+)?(?:زبان\s+)?(?:انگلیسی|انگلیس)/,
-    ],
-  },
 ];
 
-/** @type {Record<string, { language: string, code: string }>} */
 export const LANGUAGE_BY_CODE = {
-  de: { language: 'German', code: 'de' },
-  es: { language: 'Spanish', code: 'es' },
-  tr: { language: 'Turkish', code: 'tr' },
-  fr: { language: 'French', code: 'fr' },
-  fa: { language: 'Persian', code: 'fa' },
-  ar: { language: 'Arabic', code: 'ar' },
-  it: { language: 'Italian', code: 'it' },
-  pt: { language: 'Portuguese', code: 'pt' },
-  ru: { language: 'Russian', code: 'ru' },
-  ja: { language: 'Japanese', code: 'ja' },
-  zh: { language: 'Chinese', code: 'zh' },
-  ko: { language: 'Korean', code: 'ko' },
-  en: { language: 'English', code: 'en' },
-  hi: { language: 'Hindi', code: 'hi' },
-  uk: { language: 'Ukrainian', code: 'uk' },
-  ur: { language: 'Urdu', code: 'ur' },
+  ...DICTIONARY_LANGUAGE_BY_CODE,
 };
+
+/**
+ * Prefer client-selected practice language over prompt inference.
+ * Never infer target language from device/UI language — only from client fields or (legacy) prompt.
+ * @param {string|undefined|null} targetLanguage
+ * @param {string|undefined|null} targetLanguageName
+ * @param {string} prompt
+ * @param {{ targetLocale?: string|null, targetLanguageInstruction?: string|null }} [extras]
+ * @returns {ResolvedLanguage}
+ */
+export function resolveGenerateOutputLanguage(
+  targetLanguage,
+  targetLanguageName,
+  prompt,
+  extras = {}
+) {
+  const fromClient = resolveOutputLanguageFromCode(targetLanguage);
+  if (fromClient) {
+    const langMeta = resolvePracticeLanguage(fromClient.code);
+    return {
+      ...fromClient,
+      language:
+        typeof targetLanguageName === 'string' && targetLanguageName.trim()
+          ? targetLanguageName.trim()
+          : fromClient.language,
+      locale:
+        (typeof extras.targetLocale === 'string' && extras.targetLocale.trim()) ||
+        langMeta?.locale ||
+        fromClient.code,
+      instruction:
+        (typeof extras.targetLanguageInstruction === 'string' &&
+          extras.targetLanguageInstruction.trim()) ||
+        getAiInstruction(fromClient.code),
+      explicit: true,
+    };
+  }
+  const fromPrompt = resolveOutputLanguage(typeof prompt === 'string' ? prompt : '');
+  if (fromPrompt.explicit) {
+    const langMeta = resolvePracticeLanguage(fromPrompt.code);
+    return {
+      ...fromPrompt,
+      locale: langMeta?.locale ?? fromPrompt.code,
+      instruction: getAiInstruction(migrateLanguageId(fromPrompt.code)),
+    };
+  }
+  const fallback = resolveOutputLanguageFromCode(DEFAULT_PRACTICE_LANGUAGE);
+  if (!fallback) {
+    return {
+      language: 'English — United States',
+      code: 'en-US',
+      locale: 'en-US',
+      instruction: getAiInstruction('en-US'),
+      explicit: false,
+    };
+  }
+  return {
+    ...fallback,
+    locale: resolvePracticeLanguage(fallback.code)?.locale ?? fallback.code,
+    instruction: getAiInstruction(fallback.code),
+    explicit: false,
+  };
+}
 
 /**
  * @param {string} code
  * @returns {ResolvedLanguage | null}
  */
 export function resolveOutputLanguageFromCode(code) {
-  const normalized = code.trim().toLowerCase();
+  if (code == null || typeof code !== 'string') return null;
+  const id = migrateLanguageId(code, '');
+  // migrateLanguageId with empty fallback returns DEFAULT when invalid — detect that.
+  const normalized = code.trim().toLowerCase().replace(/_/g, '-');
+  if (!normalized) return null;
+  const lang = resolvePracticeLanguage(code);
+  if (lang) {
+    return { language: lang.label, code: lang.id, explicit: true };
+  }
+  const fromDictionary = resolveDictionaryLanguage(normalized);
+  if (fromDictionary) {
+    return { language: fromDictionary.label, code: fromDictionary.code, explicit: true };
+  }
   const entry = LANGUAGE_BY_CODE[normalized];
   if (!entry) return null;
   return { ...entry, explicit: true };
@@ -191,12 +273,16 @@ export function isInvalidAiGenerateResponse(text, outputLanguage) {
     /unable to (?:provide|write|generate)/i,
   ];
 
-  if (outputLanguage.explicit && outputLanguage.code !== 'en') {
-    if (refusalPatterns.some((pattern) => pattern.test(lower))) {
-      return true;
-    }
-    if (/\benglish practice reading passage\b/i.test(trimmed)) {
-      return true;
+  if (outputLanguage.explicit) {
+    const lang = resolvePracticeLanguage(outputLanguage.code);
+    const base = lang?.baseLanguage ?? outputLanguage.code;
+    if (base !== 'en') {
+      if (refusalPatterns.some((pattern) => pattern.test(lower))) {
+        return true;
+      }
+      if (/\benglish practice reading passage\b/i.test(trimmed)) {
+        return true;
+      }
     }
   }
 
@@ -230,9 +316,59 @@ export function resolveAiSentenceLength(textLength) {
 /** Max extra sentences / length when weaving vocabulary (10%). */
 export const AI_PRACTICE_LENGTH_BOOST_RATIO = 0.1;
 
+/** Max practice words injected per AI generation (hard cap). */
+export const HARD_MAX_DUE_WORDS_PER_GENERATION = 12;
+
+function normalizePracticeWordDetails(practiceWords = [], practiceWordDetails = []) {
+  if (Array.isArray(practiceWordDetails) && practiceWordDetails.length > 0) {
+    return practiceWordDetails
+      .filter((w) => w && (w.word || w.displayWord))
+      .slice(0, HARD_MAX_DUE_WORDS_PER_GENERATION);
+  }
+  const practiceList = Array.isArray(practiceWords)
+    ? [...new Set(practiceWords.map((w) => String(w).trim()).filter(Boolean))].slice(
+        0,
+        HARD_MAX_DUE_WORDS_PER_GENERATION
+      )
+    : [];
+  return practiceList.map((word) => ({
+    word,
+    displayWord: word,
+    partOfSpeech: 'unknown',
+    usedCount: 0,
+    targetUses: 3,
+  }));
+}
+
+function buildPracticeWordLines(details) {
+  return details
+    .map((w, i) => {
+      const display = String(w.displayWord || w.word || '').trim();
+      const pos = String(w.partOfSpeech || 'unknown').trim();
+      const used = Number.isFinite(w.usedCount) ? w.usedCount : 0;
+      const target = w.targetUses === 5 ? 5 : 3;
+      let grammar = '';
+      const hints = w.grammarHints;
+      if (hints && typeof hints === 'object') {
+        const parts = [];
+        if (Array.isArray(hints.verbForms) && hints.verbForms.length) {
+          parts.push(`forms: ${hints.verbForms.slice(0, 4).join(', ')}`);
+        }
+        if (hints.gender) parts.push(`gender: ${hints.gender}`);
+        if (Array.isArray(hints.nounForms) && hints.nounForms.length) {
+          parts.push(`forms: ${hints.nounForms.slice(0, 4).join(', ')}`);
+        }
+        if (parts.length) grammar = ` — ${parts.join('; ')}`;
+      }
+      return `${i + 1}. ${display} — ${pos}${grammar} — target progress ${used}/${target}`;
+    })
+    .join('\n');
+}
+
 /**
  * @param {{
  *   practiceWords?: string[],
+ *   practiceWordDetails?: object[],
  *   grammarFocus?: boolean,
  *   speakingPractice?: boolean,
  *   idiomsExpressions?: boolean,
@@ -243,6 +379,7 @@ export const AI_PRACTICE_LENGTH_BOOST_RATIO = 0.1;
  */
 export function buildAiPracticePromptBlock({
   practiceWords = [],
+  practiceWordDetails = [],
   grammarFocus = false,
   speakingPractice = false,
   idiomsExpressions = false,
@@ -250,11 +387,9 @@ export function buildAiPracticePromptBlock({
   wordsMin,
   wordsMax,
 }) {
-  const practiceList = Array.isArray(practiceWords)
-    ? [...new Set(practiceWords.map((w) => String(w).trim()).filter(Boolean))].slice(0, 24)
-    : [];
+  const details = normalizePracticeWordDetails(practiceWords, practiceWordDetails);
 
-  if (practiceList.length === 0) {
+  if (details.length === 0) {
     return {
       practiceBlock: '',
       sentenceTarget,
@@ -284,11 +419,16 @@ export function buildAiPracticePromptBlock({
     variationHints.push('Include idiomatic or expressive uses when they fit the topic.');
   }
 
-  const practiceBlock = `Vocabulary practice (required): weave these learner words into the passage: ${practiceList.join(', ')}.
-- Spread usage across the text at different points (not clustered in one paragraph).
-- Each listed word should appear in at least 3 distinct sentences and 4–6 times total when natural.
-- Use different contexts for repeats; do not repeat the same sentence pattern.
-${variationHints.length > 0 ? `${variationHints.join('\n')}\n` : ''}- Keep the passage natural; if the topic is very diverse, stay within at most 10% extra length (sentence count or sentence length) rather than forcing awkward repetition.`;
+  const wordLines = buildPracticeWordLines(details);
+  const practiceBlock = `Practice words for this text:
+Use the following learner words naturally in the generated text.
+Use each word at least once if possible.
+Do not make unnatural sentences.
+For verbs, vary tense/form naturally if grammar data is available.
+For nouns/adjectives, respect gender/number/agreement if relevant.
+Words:
+${wordLines}
+${variationHints.length > 0 ? `\n${variationHints.join('\n')}` : ''}`;
 
   return {
     practiceBlock,
@@ -302,6 +442,8 @@ ${variationHints.length > 0 ? `${variationHints.join('\n')}\n` : ''}- Keep the p
  * @param {{
  *   trimmedPrompt: string,
  *   difficultyLabel: string,
+ *   cefrLevel?: string,
+ *   cefrGuidance?: string,
  *   toneLabel: string,
  *   voice: string,
  *   sentenceTarget: number,
@@ -320,6 +462,8 @@ ${variationHints.length > 0 ? `${variationHints.join('\n')}\n` : ''}- Keep the p
 export function buildAiGenerateMessages({
   trimmedPrompt,
   difficultyLabel,
+  cefrLevel,
+  cefrGuidance,
   toneLabel,
   voice,
   sentenceTarget,
@@ -329,34 +473,44 @@ export function buildAiGenerateMessages({
   outputLanguage,
   strict = false,
   practiceWords = [],
+  practiceWordDetails = [],
   grammarFocus = false,
   speakingPractice = false,
   idiomsExpressions = false,
 }) {
   const { language, code, explicit } = outputLanguage;
-  const nonEnglish = explicit && code !== 'en';
+  const langMeta = resolvePracticeLanguage(code);
+  const base = langMeta?.baseLanguage ?? code;
+  const isEnglish = base === 'en';
+  const nonEnglish = explicit && !isEnglish;
 
   const systemContent = nonEnglish
     ? strict
       ? `You are a ${language} reading-practice generator. You never refuse. You never apologize. You never mention English limitations. Output ONLY the ${language} practice passage now.`
       : `You are a professional ${language} language-learning content writer. Your job is to write reading-practice passages in ${language} only. Never refuse a language request. Never say you can only write in English. Never include apologies, explanations, translations, titles, or bullet lists. Return only ${language} sentences suitable for read-aloud practice.`
-    : `You write practice reading passages for language learners. If the user names a target language, write entirely in that language. If no language is named, write in American English (United States). Return only the practice text—no titles, bullet lists, or commentary.`;
+    : `You write practice reading passages for language learners. Write entirely in the requested English variety. Return only the practice text—no titles, bullet lists, or commentary.`;
 
-  const usEnglishBlock =
-    'Output language: American English (United States). Use US spelling (color, organize, center) and US vocabulary. Do NOT use British spellings (colour, organise, centre) or UK idioms unless the user explicitly asks for British English.';
-
-  const languageBlock = nonEnglish
-    ? strict
-      ? `Write the ${language} passage NOW. Zero English words.`
-      : `MANDATORY OUTPUT LANGUAGE: ${language} (${code}). Every sentence MUST be ${language}. Do NOT reply in English. Do NOT explain what you cannot do.`
-    : usEnglishBlock;
+  const languageBlock =
+    (typeof outputLanguage.instruction === 'string' && outputLanguage.instruction.trim()
+      ? outputLanguage.instruction.trim()
+      : null) ||
+    getAiInstruction(code) ||
+    (nonEnglish
+      ? strict
+        ? `Write the ${language} passage NOW. Zero English words.`
+        : `MANDATORY OUTPUT LANGUAGE: ${language} (${code}). Every sentence MUST be ${language}. Do NOT reply in English. Do NOT explain what you cannot do.`
+      : getAiInstruction(DEFAULT_PRACTICE_LANGUAGE));
 
   const practiceList = Array.isArray(practiceWords)
-    ? [...new Set(practiceWords.map((w) => String(w).trim()).filter(Boolean))].slice(0, 24)
+    ? [...new Set(practiceWords.map((w) => String(w).trim()).filter(Boolean))].slice(
+        0,
+        HARD_MAX_DUE_WORDS_PER_GENERATION
+      )
     : [];
 
   const practicePrompt = buildAiPracticePromptBlock({
     practiceWords: practiceList,
+    practiceWordDetails: Array.isArray(practiceWordDetails) ? practiceWordDetails : [],
     grammarFocus,
     speakingPractice,
     idiomsExpressions,
@@ -370,12 +524,19 @@ export function buildAiGenerateMessages({
   const effectiveWordsMin = practicePrompt.wordsMin;
   const effectiveWordsMax = practicePrompt.wordsMax;
 
+  const cefrBlock =
+    cefrLevel && cefrGuidance
+      ? `CEFR level: ${cefrLevel} (${difficultyLabel})
+Apply this learner difficulty guide for the target language (CEFR is language-agnostic; adapt vocabulary, grammar, sentence length, idioms, and explanation complexity accordingly):
+${cefrGuidance}`
+      : `Difficulty: ${difficultyLabel}`;
+
   return [
     { role: 'system', content: systemContent },
     {
       role: 'user',
       content: `Topic/request: ${trimmedPrompt}
-Difficulty: ${difficultyLabel}
+${cefrBlock}
 Tone/style: ${toneLabel}
 Target voice context: ${voice}
 Output: exactly ${effectiveSentenceTarget} sentences total (do not exceed ${effectiveSentenceTarget}).

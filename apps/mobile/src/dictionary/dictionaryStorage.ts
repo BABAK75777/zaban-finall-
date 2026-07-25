@@ -1,32 +1,82 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  DEFAULT_DICTIONARY_LANGUAGE,
+  DEFAULT_PRACTICE_LANGUAGE,
+  DEFAULT_TRANSLATION_LANGUAGE,
   isDictionaryLanguageCode,
+  migrateLanguageId,
   type DictionaryLanguageCode,
 } from './dictionaryLanguages';
 import type { DictionaryEntry, DictionarySettingsV1, DictionaryStoreV1 } from './dictionaryTypes';
 import {
-  countSentencesWithWord,
+  MAX_PRACTICE_WORDS,
+  migrateDictionaryEntries,
+  logPracticeQueueLoaded,
+  logPracticeQueueSaved,
+  logPracticeQueueStorageError,
+  selectDueWordsForAi,
+  recordPracticeUsageAfterAiGeneration,
+} from './practiceQueue';
+import {
   countWordInText,
   normalizeLookupWord,
 } from './tokenizeSentence';
 
-/** After AI generation: word must appear in at least this many sentences. */
-export const AI_PRACTICE_MIN_SENTENCES = 3;
-/** After AI generation: word must appear at least this many times in the passage. */
-export const AI_PRACTICE_MIN_OCCURRENCES = 4;
-/** Soft upper target for occurrences per word in one AI passage. */
-export const AI_PRACTICE_MAX_OCCURRENCES = 6;
-
 export const DICTIONARY_STORE_KEY = '@zaban/dictionary_v1';
-const MAX_ENTRIES = 500;
+
+/** @deprecated Use practice queue usedCount/targetUses instead. */
+export const AI_PRACTICE_MIN_SENTENCES = 3;
+/** @deprecated Use practice queue usedCount/targetUses instead. */
+export const AI_PRACTICE_MIN_OCCURRENCES = 4;
+/** @deprecated Use practice queue usedCount/targetUses instead. */
+export const AI_PRACTICE_MAX_OCCURRENCES = 6;
 
 export function defaultDictionarySettings(): DictionarySettingsV1 {
   return {
     version: 1,
-    translationLanguage: DEFAULT_DICTIONARY_LANGUAGE,
+    practiceLanguage: DEFAULT_PRACTICE_LANGUAGE,
+    translationLanguage: DEFAULT_TRANSLATION_LANGUAGE,
     saveWordsOnLookup: true,
     useDictionaryInAi: true,
+  };
+}
+
+/** Normalize settings from storage, migrating legacy single-language field. */
+export function normalizeDictionarySettings(
+  settings: Partial<DictionarySettingsV1> | null | undefined
+): DictionarySettingsV1 {
+  const defaults = defaultDictionarySettings();
+  const legacyTranslation = (settings as { translationLanguage?: unknown } | null | undefined)
+    ?.translationLanguage;
+  const rawPractice = (settings as { practiceLanguage?: unknown } | null | undefined)
+    ?.practiceLanguage;
+
+  // Legacy stores only had translationLanguage; that value drove AI too — preserve both.
+  const practiceLanguage = migrateLanguageId(
+    rawPractice ?? legacyTranslation,
+    DEFAULT_PRACTICE_LANGUAGE
+  ) as DictionaryLanguageCode;
+
+  const translationLanguage = migrateLanguageId(
+    legacyTranslation,
+    DEFAULT_TRANSLATION_LANGUAGE
+  ) as DictionaryLanguageCode;
+
+  return {
+    version: 1,
+    practiceLanguage: isDictionaryLanguageCode(practiceLanguage)
+      ? practiceLanguage
+      : defaults.practiceLanguage,
+    translationLanguage: isDictionaryLanguageCode(translationLanguage)
+      ? translationLanguage
+      : defaults.translationLanguage,
+    saveWordsOnLookup:
+      settings?.saveWordsOnLookup === undefined
+        ? defaults.saveWordsOnLookup
+        : Boolean(settings.saveWordsOnLookup),
+    useDictionaryInAi:
+      settings?.useDictionaryInAi === undefined
+        ? defaults.useDictionaryInAi
+        : Boolean(settings.useDictionaryInAi),
   };
 }
 
@@ -43,31 +93,29 @@ function parseStore(raw: string): DictionaryStoreV1 | null {
     const data = JSON.parse(raw) as Partial<DictionaryStoreV1>;
     if (data.version !== 1) return null;
 
-    const settings = data.settings ?? defaultDictionarySettings();
-    const translationLanguage = isDictionaryLanguageCode(settings.translationLanguage)
-      ? settings.translationLanguage
-      : DEFAULT_DICTIONARY_LANGUAGE;
+    const settings = normalizeDictionarySettings(data.settings);
 
     const entries: DictionaryEntry[] = Array.isArray(data.entries)
-      ? data.entries
-          .filter(
+      ? migrateDictionaryEntries(
+          data.entries.filter(
             (e): e is DictionaryEntry =>
               e != null &&
               typeof e.word === 'string' &&
               typeof e.meaning === 'string' &&
               typeof e.lookupCount === 'number'
-          )
-          .slice(0, MAX_ENTRIES)
+          ).map((e) => ({
+            ...e,
+            targetLanguage: migrateLanguageId(
+              e.targetLanguage,
+              settings.translationLanguage
+            ) as DictionaryLanguageCode,
+          }))
+        )
       : [];
 
     return {
       version: 1,
-      settings: {
-        version: 1,
-        translationLanguage,
-        saveWordsOnLookup: Boolean(settings.saveWordsOnLookup),
-        useDictionaryInAi: Boolean(settings.useDictionaryInAi),
-      },
+      settings,
       entries,
     };
   } catch {
@@ -79,8 +127,11 @@ export async function loadDictionaryStore(): Promise<DictionaryStoreV1> {
   try {
     const raw = await AsyncStorage.getItem(DICTIONARY_STORE_KEY);
     if (!raw) return defaultStore();
-    return parseStore(raw) ?? defaultStore();
-  } catch {
+    const store = parseStore(raw) ?? defaultStore();
+    logPracticeQueueLoaded(store.entries.length);
+    return store;
+  } catch (err) {
+    logPracticeQueueStorageError(err);
     return defaultStore();
   }
 }
@@ -89,25 +140,87 @@ export async function saveDictionaryStore(store: DictionaryStoreV1): Promise<voi
   const payload: DictionaryStoreV1 = {
     version: 1,
     settings: store.settings,
-    entries: store.entries.slice(0, MAX_ENTRIES),
+    entries: migrateDictionaryEntries(store.entries).slice(0, MAX_PRACTICE_WORDS),
   };
-  await AsyncStorage.setItem(DICTIONARY_STORE_KEY, JSON.stringify(payload));
+  try {
+    await AsyncStorage.setItem(DICTIONARY_STORE_KEY, JSON.stringify(payload));
+    logPracticeQueueSaved(payload.entries.length);
+  } catch (err) {
+    logPracticeQueueStorageError(err);
+    throw err;
+  }
+}
+
+let dictionaryWriteChain: Promise<unknown> = Promise.resolve();
+
+function logDictionarySave(
+  beforeCount: number,
+  afterCount: number,
+  word: string,
+  language: DictionaryLanguageCode,
+  duplicate: boolean
+): void {
+  console.log(`[DICTIONARY_SAVE] beforeCount=${beforeCount} afterCount=${afterCount}`);
+  console.log(`[DICTIONARY_SAVE] saved word=${word} language=${language}`);
+  if (duplicate) {
+    console.log(`[DICTIONARY_SAVE] duplicate handled word=${word}`);
+  }
+}
+
+/**
+ * Serialized read-modify-write for dictionary store.
+ * Prevents concurrent saves from overwriting earlier entries.
+ */
+export async function mutateDictionaryStore(
+  mutator: (store: DictionaryStoreV1) => DictionaryStoreV1,
+  meta?: { word?: string; language?: DictionaryLanguageCode }
+): Promise<DictionaryStoreV1> {
+  let result!: DictionaryStoreV1;
+  const run = async () => {
+    const store = await loadDictionaryStore();
+    const beforeCount = store.entries.length;
+    const next = mutator(store);
+    const afterCount = next.entries.length;
+    await saveDictionaryStore(next);
+    if (meta?.word && meta?.language) {
+      logDictionarySave(
+        beforeCount,
+        afterCount,
+        meta.word,
+        meta.language,
+        beforeCount === afterCount
+      );
+    }
+    result = next;
+    return next;
+  };
+  dictionaryWriteChain = dictionaryWriteChain.then(run, run);
+  await dictionaryWriteChain;
+  return result;
+}
+
+/** Clears serialized write queue between tests. */
+export function resetDictionaryWriteChainForTests(): void {
+  dictionaryWriteChain = Promise.resolve();
 }
 
 export async function updateDictionarySettings(
   patch: Partial<DictionarySettingsV1>
 ): Promise<DictionarySettingsV1> {
-  const store = await loadDictionaryStore();
-  const next: DictionarySettingsV1 = {
-    ...store.settings,
-    ...patch,
-    version: 1,
-    translationLanguage: isDictionaryLanguageCode(patch.translationLanguage)
-      ? patch.translationLanguage
-      : store.settings.translationLanguage,
-  };
-  await saveDictionaryStore({ ...store, settings: next });
-  return next;
+  const next = await mutateDictionaryStore((store) => {
+    const settings = normalizeDictionarySettings({
+      ...store.settings,
+      ...patch,
+      practiceLanguage: isDictionaryLanguageCode(patch.practiceLanguage)
+        ? (migrateLanguageId(patch.practiceLanguage) as DictionaryLanguageCode)
+        : store.settings.practiceLanguage,
+      translationLanguage: isDictionaryLanguageCode(patch.translationLanguage)
+        ? (migrateLanguageId(patch.translationLanguage) as DictionaryLanguageCode)
+        : store.settings.translationLanguage,
+    });
+    return { ...store, settings };
+  });
+  return next.settings;
 }
 
 export function findDictionaryEntry(
@@ -188,9 +301,14 @@ export function upsertDictionaryEntry(
     savedAt: now,
     lookupCount: 1,
     textAppearanceCount: input.textAppearanceCount ?? 1,
+    id: `${input.targetLanguage}:${key}`,
+    targetUses: 3,
+    usedCount: 0,
+    difficultyStarred: false,
+    updatedAt: now,
   };
 
-  return [entry, ...entries].slice(0, MAX_ENTRIES);
+  return [entry, ...entries].slice(0, MAX_PRACTICE_WORDS);
 }
 
 export function incrementLookupCount(
@@ -256,42 +374,37 @@ export function addManualDictionaryEntry(
     savedAt: Date.now(),
     lookupCount: 0,
     textAppearanceCount: 0,
+    id: `${input.targetLanguage}:${key}`,
+    targetUses: 3,
+    usedCount: 0,
+    difficultyStarred: false,
+    updatedAt: Date.now(),
   };
 
-  return [entry, ...entries].slice(0, MAX_ENTRIES);
+  return [entry, ...entries].slice(0, MAX_PRACTICE_WORDS);
 }
 
 export function shouldRemoveWordAfterAiPractice(word: string, fullText: string): boolean {
-  const occurrences = countWordInText(word, fullText);
-  const sentences = countSentencesWithWord(word, fullText);
-  return (
-    sentences >= AI_PRACTICE_MIN_SENTENCES && occurrences >= AI_PRACTICE_MIN_OCCURRENCES
-  );
+  return countWordInText(word, fullText) > 0;
 }
 
-/** Remove saved words that were practiced enough in a generated AI passage. */
+/** @deprecated Use recordPracticeUsageAfterAiGeneration from practiceQueue. */
 export function removePracticeWordsUsedInAiText(
   entries: DictionaryEntry[],
   fullText: string,
   practiceWords: string[]
 ): DictionaryEntry[] {
-  if (!fullText.trim() || practiceWords.length === 0) return entries;
-
-  const keysToRemove = new Set<string>();
-  for (const displayWord of practiceWords) {
-    if (shouldRemoveWordAfterAiPractice(displayWord, fullText)) {
-      const key = normalizeLookupWord(displayWord);
-      if (key) keysToRemove.add(key);
-    }
-  }
-  if (keysToRemove.size === 0) return entries;
-
-  return entries.filter((entry) => !keysToRemove.has(entry.word));
+  const batch = practiceWords.map((displayWord) => ({
+    word: normalizeLookupWord(displayWord),
+    displayWord,
+    usedCount: 0,
+    targetUses: 3 as const,
+    difficultyStarred: false,
+  }));
+  return recordPracticeUsageAfterAiGeneration(entries, fullText, batch);
 }
 
+/** @deprecated Use selectDueWordsForAi from practiceQueue. */
 export function getPracticeWordsForAi(entries: DictionaryEntry[]): string[] {
-  const ordered = [...entries].sort(
-    (a, b) => a.textAppearanceCount - b.textAppearanceCount || a.savedAt - b.savedAt
-  );
-  return [...new Set(ordered.map((e) => e.displayWord.trim()).filter(Boolean))].slice(0, 24);
+  return selectDueWordsForAi(entries).map((w) => w.displayWord);
 }

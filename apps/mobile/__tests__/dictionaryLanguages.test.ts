@@ -1,28 +1,19 @@
-import { DICTIONARY_LANGUAGES, dictionaryLanguageLabel } from '../src/dictionary/dictionaryLanguages';
+import {
+  DICTIONARY_LANGUAGES,
+  PRACTICE_LANGUAGES,
+  dictionaryLanguageLabel,
+} from '../src/dictionary/dictionaryLanguages';
 
-describe('dictionaryLanguages', () => {
-  it('lists exactly 13 supported translation languages', () => {
-    expect(DICTIONARY_LANGUAGES).toHaveLength(13);
-    expect(DICTIONARY_LANGUAGES.map((l) => l.label)).toEqual([
-      'Arabic',
-      'English',
-      'French',
-      'German',
-      'Hindi',
-      'Korean',
-      'Persian',
-      'Portuguese',
-      'Russian',
-      'Spanish',
-      'Turkish',
-      'Ukrainian',
-      'Urdu',
-    ]);
+describe('dictionary / practice language labels', () => {
+  it('lists all registry languages for pickers', () => {
+    expect(DICTIONARY_LANGUAGES.length).toBe(PRACTICE_LANGUAGES.length);
+    expect(DICTIONARY_LANGUAGES.map((l) => l.label)).toContain('English — United States');
+    expect(DICTIONARY_LANGUAGES.map((l) => l.label)).toContain('English — United Kingdom');
+    expect(DICTIONARY_LANGUAGES.map((l) => l.label)).toContain('Persian');
   });
 
-  it('resolves labels by code', () => {
-    expect(dictionaryLanguageLabel('en')).toBe('English');
-    expect(dictionaryLanguageLabel('fa')).toBe('Persian');
-    expect(dictionaryLanguageLabel('ur')).toBe('Urdu');
+  it('labels stable ids', () => {
+    expect(dictionaryLanguageLabel('en-US')).toBe('English — United States');
+    expect(dictionaryLanguageLabel('en-GB')).toBe('English — United Kingdom');
   });
 });
