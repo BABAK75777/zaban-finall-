@@ -32,9 +32,12 @@ function emit(): void {
 }
 
 function toSnapshot(info: AdsConsentInfo): AdsConsentSnapshot {
+  // UMP may report UNKNOWN while canRequestAds is already true (no form required /
+  // publisher form not configured). Treat canRequestAds as consent-ready for requests.
+  const allows = Boolean(info.canRequestAds);
   return {
-    consentReady: info.status !== AdsConsentStatus.UNKNOWN,
-    consentAllowsAds: info.canRequestAds,
+    consentReady: allows || info.status !== AdsConsentStatus.UNKNOWN,
+    consentAllowsAds: allows,
     consentStatus: info.status,
   };
 }
@@ -84,9 +87,9 @@ export async function refreshAdsConsent(): Promise<AdsConsentSnapshot> {
         consentStatus: AdsConsentStatus.NOT_REQUIRED,
       };
     }
-    // UMP unavailable (sideload / no Play Services) — avoid a permanent empty ad footer.
+    // UMP unavailable / publisher form missing — avoid a permanent empty ad footer.
     if (
-      !snapshot.consentAllowsAds &&
+      !snapshot.consentAllowsAds ||
       snapshot.consentStatus === AdsConsentStatus.UNKNOWN
     ) {
       snapshot = {

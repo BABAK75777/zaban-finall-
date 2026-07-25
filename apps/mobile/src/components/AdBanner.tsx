@@ -93,17 +93,17 @@ function resolveReservedSlotReason(input: {
   if (!input.adsEnabledByConfig) {
     return 'ads_disabled';
   }
-  if (!input.consentReady) {
-    return 'consent_not_ready';
-  }
   if (!input.consentAllowsAds) {
-    return 'consent_disallows_ads';
+    return input.consentReady ? 'consent_disallows_ads' : 'consent_not_ready';
+  }
+  if (input.adFailed) {
+    return 'load_failed';
   }
   if (!input.sdkReady) {
     return 'sdk_not_ready';
   }
-  if (input.adFailed) {
-    return 'load_failed';
+  if (!input.consentReady) {
+    return 'consent_not_ready';
   }
   return 'waiting';
 }
