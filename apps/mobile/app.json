@@ -1,25 +1,33 @@
 {
   "expo": {
-    "name": "Zaban TTS",
-    "slug": "zaban-tts",
-    "scheme": "zaban-tts",
-    "version": "1.0.0",
-    "orientation": "portrait",
+    "name": "Mamlio",
+    "slug": "mamlio",
+    "scheme": "mamlio",
+    "version": "1.3.2",
+    "orientation": "default",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#050A30"
+    },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.zaban.tts",
+      "bundleIdentifier": "com.babakworks.mamlio",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
-        ]
+        ],
+        "NSMicrophoneUsageDescription": "Allow Mamlio to record your voice for speaking and playback practice."
       }
     },
     "android": {
-      "package": "com.zaban.tts",
+      "package": "com.babakworks.mamlio",
+      "versionCode": 132,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.RECORD_AUDIO",
@@ -35,6 +43,9 @@
           "autoVerify": true,
           "data": [
             {
+              "scheme": "mamlio"
+            },
+            {
               "scheme": "zaban-tts"
             }
           ],
@@ -43,23 +54,41 @@
             "DEFAULT"
           ]
         }
-      ]
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#050A30"
+      }
     },
     "plugins": [
       "expo-router",
       "expo-asset",
       [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "buildToolsVersion": "36.0.0",
+            "minSdkVersion": 23
+          }
+        }
+      ],
+      [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Zaban to read text from your photos.",
-          "cameraPermission": "Allow Zaban to take photos for text recognition."
+          "photosPermission": "Allow Mamlio to read text from your photos.",
+          "cameraPermission": "Allow Mamlio to take photos for text recognition."
         }
       ]
     ],
     "extra": {
       "eas": {
         "projectId": "8b37435e-cfd3-436c-8017-25e99b82bb90"
-      }
+      },
+      "companyName": "Babak Works",
+      "displayName": "Mamlio by Babak Works",
+      "websiteUrl": "https://babakworks.com"
     }
   }
 }
