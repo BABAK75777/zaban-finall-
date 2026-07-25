@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildAiGenerateMessages, resolveGenerateOutputLanguage } from '../backend/utils/resolveOutputLanguage.js';
+import { getAiInstruction, migrateLanguageId } from '../packages/dictionary-languages/index.js';
 
 function payloadLanguageBlock(code: string, name: string) {
   const messages = buildAiGenerateMessages({
@@ -50,12 +51,11 @@ describe('AI generate language contract', () => {
 
   it('French / German / Turkish / Korean / Chinese payloads are not Persian', () => {
     const cases: Array<[string, string, RegExp]> = [
-      ['fr-FR', 'French — France', /french/i],
+      ['fr-FR', 'French', /french/i],
       ['de-DE', 'German', /german/i],
-      ['tr-TR', 'Turkish — Turkey', /turkish/i],
+      ['tr-TR', 'Turkish', /turkish/i],
       ['ko-KR', 'Korean', /korean/i],
-      ['zh-Hans', 'Chinese — Simplified', /simplified chinese/i],
-      ['zh-Hant', 'Chinese — Traditional', /traditional chinese/i],
+      ['zh-Hans', 'Chinese', /chinese/i],
     ];
     for (const [code, name, re] of cases) {
       const text = payloadLanguageBlock(code, name);
@@ -64,18 +64,22 @@ describe('AI generate language contract', () => {
     }
   });
 
-  it('keeps Portuguese Brazil and Portugal instructions distinct', () => {
-    const br = payloadLanguageBlock('pt-BR', 'Portuguese — Brazil').toLowerCase();
-    const pt = payloadLanguageBlock('pt-PT', 'Portuguese — Portugal').toLowerCase();
-    expect(br).toContain('brazilian');
-    expect(pt).toContain('portugal');
-    expect(br).not.toEqual(pt);
+  it('dictionary translation language does not override AI instruction for practice language', () => {
+    const aiCode = migrateLanguageId('en-GB');
+    const instruction = getAiInstruction(aiCode).toLowerCase();
+    expect(instruction).toContain('british');
+    expect(instruction).not.toContain('persian (farsi)');
+    // Simulated: translationLanguage=fa must not rewrite AI instruction for en-GB
+    const translationLanguage = 'fa';
+    expect(getAiInstruction(aiCode)).not.toBe(getAiInstruction(translationLanguage));
   });
 
-  it('keeps Spanish regional instructions distinct', () => {
-    const es = payloadLanguageBlock('es-ES', 'Spanish — Spain').toLowerCase();
-    const mx = payloadLanguageBlock('es-MX', 'Spanish — Mexico').toLowerCase();
-    expect(es).toContain('spain');
-    expect(mx).toMatch(/mexico|latam|latin america/);
+  it('migrated regional Portuguese/Spanish/Chinese map to canonical AI instructions', () => {
+    expect(migrateLanguageId('pt-PT')).toBe('pt-BR');
+    expect(migrateLanguageId('es-MX')).toBe('es-ES');
+    expect(migrateLanguageId('zh-Hant')).toBe('zh-Hans');
+    expect(getAiInstruction('pt-PT').toLowerCase()).toContain('portuguese');
+    expect(getAiInstruction('es-MX').toLowerCase()).toContain('spanish');
+    expect(getAiInstruction('zh-Hant').toLowerCase()).toContain('chinese');
   });
 });

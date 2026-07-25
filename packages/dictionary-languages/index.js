@@ -13,6 +13,7 @@
  * @property {string} aiInstruction
  * @property {string} ttsLocale
  * @property {string} sttLocale
+ * @property {string} [ttsInstruction] Accent/voice instruction for TTS providers
  * @property {string} [script]
  * @property {string[]} [aliases] legacy codes that migrate to this id
  */
@@ -29,6 +30,8 @@ export const PRACTICE_LANGUAGES = [
       'Output language: American English (United States). Use US spelling (color, favorite, organize, center, apartment) and US vocabulary/usage. Do NOT use British spellings (colour, favourite, organise, centre) or UK-only terms (flat for apartment) unless the user explicitly asks for British English.',
     ttsLocale: 'en-US',
     sttLocale: 'en-US',
+    ttsInstruction:
+      'Speak with a clear General American (United States) English accent and American pronunciation.',
     script: 'Latn',
     aliases: ['en', 'english'],
   },
@@ -42,86 +45,52 @@ export const PRACTICE_LANGUAGES = [
       'Output language: British English (United Kingdom). Use British spelling (colour, favourite, organise, centre) and UK vocabulary/usage (flat rather than apartment when natural). Do NOT use American spellings (color, favorite, organize, center) unless the user explicitly asks for American English.',
     ttsLocale: 'en-GB',
     sttLocale: 'en-GB',
+    ttsInstruction:
+      'Speak with a clear British (United Kingdom) English accent and British pronunciation.',
     script: 'Latn',
     aliases: ['en-uk', 'en_gb', 'british'],
   },
   {
     id: 'es-ES',
-    label: 'Spanish — Spain',
+    label: 'Spanish',
     locale: 'es-ES',
     baseLanguage: 'es',
     region: 'ES',
     aiInstruction:
-      'Output language: Spanish as used in Spain (Castilian). Use peninsular vocabulary and conjugations (e.g. vosotros where natural). Do NOT switch to Latin American Spanish.',
+      'Output language: Spanish. Write entirely in Spanish. Do NOT reply in Persian, English, or any other language.',
     ttsLocale: 'es-ES',
     sttLocale: 'es-ES',
+    ttsInstruction: 'Speak naturally in Spanish.',
     script: 'Latn',
-    aliases: ['es', 'spanish'],
-  },
-  {
-    id: 'es-MX',
-    label: 'Spanish — Mexico',
-    locale: 'es-MX',
-    baseLanguage: 'es',
-    region: 'MX',
-    aiInstruction:
-      'Output language: Spanish as used in Mexico / Latin America. Prefer Mexican/LatAm vocabulary. Do NOT use Spain-only forms (vosotros) unless natural in the topic.',
-    ttsLocale: 'es-MX',
-    sttLocale: 'es-MX',
-    script: 'Latn',
-    aliases: ['es-419', 'es-latam'],
+    aliases: ['es', 'spanish', 'es-MX', 'es-mx', 'es-419', 'es-latam'],
   },
   {
     id: 'fr-FR',
-    label: 'French — France',
+    label: 'French',
     locale: 'fr-FR',
     baseLanguage: 'fr',
     region: 'FR',
     aiInstruction:
-      'Output language: French as used in France. Use Metropolitan French spelling and vocabulary. Write entirely in French. Do NOT reply in Persian, English, or any other language. Do NOT use Canadian French variants.',
+      'Output language: French. Write entirely in French. Do NOT reply in Persian, English, or any other language.',
     ttsLocale: 'fr-FR',
     sttLocale: 'fr-FR',
+    ttsInstruction: 'Speak naturally in French.',
     script: 'Latn',
-    aliases: ['fr', 'french'],
-  },
-  {
-    id: 'fr-CA',
-    label: 'French — Canada',
-    locale: 'fr-CA',
-    baseLanguage: 'fr',
-    region: 'CA',
-    aiInstruction:
-      'Output language: French as used in Canada (Québec / Canadian French). Prefer Canadian vocabulary and usage. Do NOT default to Metropolitan French-only wording.',
-    ttsLocale: 'fr-CA',
-    sttLocale: 'fr-CA',
-    script: 'Latn',
-    aliases: [],
+    aliases: ['fr', 'french', 'fr-CA', 'fr-ca'],
   },
   {
     id: 'pt-BR',
-    label: 'Portuguese — Brazil',
+    label: 'Portuguese',
     locale: 'pt-BR',
     baseLanguage: 'pt',
     region: 'BR',
     aiInstruction:
-      'Output language: Brazilian Portuguese. Use Brazilian spelling, vocabulary, and usage. Do NOT use European Portuguese-only forms.',
+      'Output language: Portuguese. Write entirely in Portuguese. Prefer widely understood Brazilian Portuguese spelling and vocabulary as the default Portuguese variant.',
     ttsLocale: 'pt-BR',
     sttLocale: 'pt-BR',
+    ttsInstruction: 'Speak naturally in Portuguese.',
     script: 'Latn',
-    aliases: ['pt', 'portuguese'],
-  },
-  {
-    id: 'pt-PT',
-    label: 'Portuguese — Portugal',
-    locale: 'pt-PT',
-    baseLanguage: 'pt',
-    region: 'PT',
-    aiInstruction:
-      'Output language: European Portuguese (Portugal). Use Portugal spelling, vocabulary, and usage. Do NOT use Brazilian Portuguese-only forms.',
-    ttsLocale: 'pt-PT',
-    sttLocale: 'pt-PT',
-    script: 'Latn',
-    aliases: [],
+    aliases: ['pt', 'portuguese', 'pt-PT', 'pt-pt'],
   },
   {
     id: 'de-DE',
@@ -133,6 +102,7 @@ export const PRACTICE_LANGUAGES = [
       'Output language: standard German (Germany). Write entirely in German. Do NOT reply in Persian, English, or any other language.',
     ttsLocale: 'de-DE',
     sttLocale: 'de-DE',
+    ttsInstruction: 'Speak naturally in German.',
     script: 'Latn',
     aliases: ['de', 'german', 'deutsch'],
   },
@@ -145,6 +115,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Italian (Italy). Write entirely in Italian.',
     ttsLocale: 'it-IT',
     sttLocale: 'it-IT',
+    ttsInstruction: 'Speak naturally in Italian.',
     script: 'Latn',
     aliases: ['it', 'italian'],
   },
@@ -157,6 +128,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Dutch (Netherlands). Write entirely in Dutch.',
     ttsLocale: 'nl-NL',
     sttLocale: 'nl-NL',
+    ttsInstruction: 'Speak naturally in Dutch.',
     script: 'Latn',
     aliases: ['nl', 'dutch'],
   },
@@ -169,6 +141,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Swedish. Write entirely in Swedish.',
     ttsLocale: 'sv-SE',
     sttLocale: 'sv-SE',
+    ttsInstruction: 'Speak naturally in Swedish.',
     script: 'Latn',
     aliases: ['sv', 'swedish'],
   },
@@ -181,6 +154,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: Norwegian Bokmål. Write entirely in Norwegian.',
     ttsLocale: 'nb-NO',
     sttLocale: 'nb-NO',
+    ttsInstruction: 'Speak naturally in Norwegian.',
     script: 'Latn',
     aliases: ['no', 'nb', 'norwegian'],
   },
@@ -193,6 +167,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Danish. Write entirely in Danish.',
     ttsLocale: 'da-DK',
     sttLocale: 'da-DK',
+    ttsInstruction: 'Speak naturally in Danish.',
     script: 'Latn',
     aliases: ['da', 'danish'],
   },
@@ -205,6 +180,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Finnish. Write entirely in Finnish.',
     ttsLocale: 'fi-FI',
     sttLocale: 'fi-FI',
+    ttsInstruction: 'Speak naturally in Finnish.',
     script: 'Latn',
     aliases: ['fi', 'finnish'],
   },
@@ -217,6 +193,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Icelandic. Write entirely in Icelandic.',
     ttsLocale: 'is-IS',
     sttLocale: 'is-IS',
+    ttsInstruction: 'Speak naturally in Icelandic.',
     script: 'Latn',
     aliases: ['is', 'icelandic'],
   },
@@ -229,6 +206,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: Irish (Gaeilge). Write entirely in Irish.',
     ttsLocale: 'ga-IE',
     sttLocale: 'ga-IE',
+    ttsInstruction: 'Speak naturally in Irish.',
     script: 'Latn',
     aliases: ['ga', 'irish'],
   },
@@ -241,6 +219,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Polish. Write entirely in Polish.',
     ttsLocale: 'pl-PL',
     sttLocale: 'pl-PL',
+    ttsInstruction: 'Speak naturally in Polish.',
     script: 'Latn',
     aliases: ['pl', 'polish'],
   },
@@ -253,6 +232,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Czech. Write entirely in Czech.',
     ttsLocale: 'cs-CZ',
     sttLocale: 'cs-CZ',
+    ttsInstruction: 'Speak naturally in Czech.',
     script: 'Latn',
     aliases: ['cs', 'czech'],
   },
@@ -265,6 +245,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Slovak. Write entirely in Slovak.',
     ttsLocale: 'sk-SK',
     sttLocale: 'sk-SK',
+    ttsInstruction: 'Speak naturally in Slovak.',
     script: 'Latn',
     aliases: ['sk', 'slovak'],
   },
@@ -277,6 +258,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Hungarian. Write entirely in Hungarian.',
     ttsLocale: 'hu-HU',
     sttLocale: 'hu-HU',
+    ttsInstruction: 'Speak naturally in Hungarian.',
     script: 'Latn',
     aliases: ['hu', 'hungarian'],
   },
@@ -289,6 +271,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Romanian. Write entirely in Romanian.',
     ttsLocale: 'ro-RO',
     sttLocale: 'ro-RO',
+    ttsInstruction: 'Speak naturally in Romanian.',
     script: 'Latn',
     aliases: ['ro', 'romanian'],
   },
@@ -301,6 +284,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Bulgarian. Write entirely in Bulgarian.',
     ttsLocale: 'bg-BG',
     sttLocale: 'bg-BG',
+    ttsInstruction: 'Speak naturally in Bulgarian.',
     script: 'Cyrl',
     aliases: ['bg', 'bulgarian'],
   },
@@ -313,6 +297,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Croatian. Write entirely in Croatian.',
     ttsLocale: 'hr-HR',
     sttLocale: 'hr-HR',
+    ttsInstruction: 'Speak naturally in Croatian.',
     script: 'Latn',
     aliases: ['hr', 'croatian'],
   },
@@ -326,6 +311,7 @@ export const PRACTICE_LANGUAGES = [
       'Output language: standard Serbian. Prefer Latin script unless the topic clearly requires Cyrillic. Write entirely in Serbian.',
     ttsLocale: 'sr-RS',
     sttLocale: 'sr-RS',
+    ttsInstruction: 'Speak naturally in Serbian.',
     script: 'Latn',
     aliases: ['sr', 'serbian'],
   },
@@ -338,6 +324,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Slovenian. Write entirely in Slovenian.',
     ttsLocale: 'sl-SI',
     sttLocale: 'sl-SI',
+    ttsInstruction: 'Speak naturally in Slovenian.',
     script: 'Latn',
     aliases: ['sl', 'slovenian'],
   },
@@ -350,12 +337,13 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: modern standard Greek. Write entirely in Greek.',
     ttsLocale: 'el-GR',
     sttLocale: 'el-GR',
+    ttsInstruction: 'Speak naturally in Greek.',
     script: 'Grek',
     aliases: ['el', 'greek'],
   },
   {
     id: 'tr-TR',
-    label: 'Turkish — Turkey',
+    label: 'Turkish',
     locale: 'tr-TR',
     baseLanguage: 'tr',
     region: 'TR',
@@ -363,6 +351,7 @@ export const PRACTICE_LANGUAGES = [
       'Output language: standard Turkish as used in Turkey (Türkiye). Write entirely in Turkish. Do NOT reply in Persian or English.',
     ttsLocale: 'tr-TR',
     sttLocale: 'tr-TR',
+    ttsInstruction: 'Speak naturally in Turkish.',
     script: 'Latn',
     aliases: ['tr', 'turkish'],
   },
@@ -375,6 +364,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Russian. Write entirely in Russian.',
     ttsLocale: 'ru-RU',
     sttLocale: 'ru-RU',
+    ttsInstruction: 'Speak naturally in Russian.',
     script: 'Cyrl',
     aliases: ['ru', 'russian'],
   },
@@ -387,6 +377,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Ukrainian. Write entirely in Ukrainian.',
     ttsLocale: 'uk-UA',
     sttLocale: 'uk-UA',
+    ttsInstruction: 'Speak naturally in Ukrainian.',
     script: 'Cyrl',
     aliases: ['uk', 'ukrainian'],
   },
@@ -399,34 +390,32 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Korean. Write entirely in Korean (Hangul).',
     ttsLocale: 'ko-KR',
     sttLocale: 'ko-KR',
+    ttsInstruction: 'Speak naturally in Korean.',
     script: 'Hang',
     aliases: ['ko', 'korean'],
   },
   {
     id: 'zh-Hans',
-    label: 'Chinese — Simplified',
+    label: 'Chinese',
     locale: 'zh-CN',
     baseLanguage: 'zh',
     region: 'CN',
     aiInstruction:
-      'Output language: Simplified Chinese (简体中文). Use simplified characters only. Do NOT use Traditional Chinese characters.',
+      'Output language: Chinese. Prefer Simplified Chinese characters (简体中文) unless Traditional is explicitly requested. Write entirely in Chinese. Do NOT reply in Persian or English.',
     ttsLocale: 'zh-CN',
     sttLocale: 'zh-CN',
+    ttsInstruction: 'Speak naturally in Chinese.',
     script: 'Hans',
-    aliases: ['zh', 'zh-cn', 'chinese', 'zh-hans'],
-  },
-  {
-    id: 'zh-Hant',
-    label: 'Chinese — Traditional',
-    locale: 'zh-TW',
-    baseLanguage: 'zh',
-    region: 'TW',
-    aiInstruction:
-      'Output language: Traditional Chinese (繁體中文). Use traditional characters only. Do NOT use Simplified Chinese characters.',
-    ttsLocale: 'zh-TW',
-    sttLocale: 'zh-TW',
-    script: 'Hant',
-    aliases: ['zh-tw', 'zh-hk', 'zh-hant'],
+    aliases: [
+      'zh',
+      'zh-cn',
+      'chinese',
+      'zh-hans',
+      'zh-Hant',
+      'zh-hant',
+      'zh-tw',
+      'zh-hk',
+    ],
   },
   {
     id: 'fa',
@@ -438,6 +427,7 @@ export const PRACTICE_LANGUAGES = [
       'Output language: Persian (Farsi). Write entirely in Persian using Persian script. Do NOT reply in English unless translating on request.',
     ttsLocale: 'fa-IR',
     sttLocale: 'fa-IR',
+    ttsInstruction: 'Speak naturally in Persian.',
     script: 'Arab',
     aliases: ['fa-IR', 'farsi', 'persian'],
   },
@@ -450,6 +440,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: Modern Standard Arabic. Write entirely in Arabic script.',
     ttsLocale: 'ar-SA',
     sttLocale: 'ar-SA',
+    ttsInstruction: 'Speak naturally in Arabic.',
     script: 'Arab',
     aliases: ['arabic'],
   },
@@ -462,6 +453,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Hindi. Write entirely in Devanagari Hindi.',
     ttsLocale: 'hi-IN',
     sttLocale: 'hi-IN',
+    ttsInstruction: 'Speak naturally in Hindi.',
     script: 'Deva',
     aliases: ['hindi'],
   },
@@ -474,6 +466,7 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Urdu. Write entirely in Urdu script.',
     ttsLocale: 'ur-PK',
     sttLocale: 'ur-PK',
+    ttsInstruction: 'Speak naturally in Urdu.',
     script: 'Arab',
     aliases: ['urdu'],
   },
@@ -486,10 +479,47 @@ export const PRACTICE_LANGUAGES = [
     aiInstruction: 'Output language: standard Japanese. Write entirely in Japanese.',
     ttsLocale: 'ja-JP',
     sttLocale: 'ja-JP',
+    ttsInstruction: 'Speak naturally in Japanese.',
     script: 'Jpan',
     aliases: ['japanese'],
   },
 ];
+
+/**
+ * Visible AI Generation Language choices (stable IDs).
+ * Sorted alphabetically by label via getAiGenerationLanguages().
+ */
+export const AI_GENERATION_LANGUAGE_IDS = Object.freeze([
+  'bg-BG',
+  'zh-Hans',
+  'hr-HR',
+  'cs-CZ',
+  'da-DK',
+  'nl-NL',
+  'en-GB',
+  'en-US',
+  'fi-FI',
+  'fr-FR',
+  'de-DE',
+  'el-GR',
+  'hu-HU',
+  'is-IS',
+  'it-IT',
+  'ja',
+  'ko-KR',
+  'nb-NO',
+  'pl-PL',
+  'pt-BR',
+  'ro-RO',
+  'ru-RU',
+  'sr-RS',
+  'sk-SK',
+  'sl-SI',
+  'es-ES',
+  'sv-SE',
+  'tr-TR',
+  'uk-UA',
+]);
 
 /** New installs: practice content defaults to US English. */
 export const DEFAULT_PRACTICE_LANGUAGE = 'en-US';
@@ -574,6 +604,50 @@ export const DICTIONARY_LANGUAGES = PRACTICE_LANGUAGES.map((lang) => ({
   label: lang.label,
 }));
 
+/**
+ * Alphabetically sorted AI Generation Language options for Settings selectors.
+ * @returns {PracticeLanguage[]}
+ */
+export function getAiGenerationLanguages() {
+  return AI_GENERATION_LANGUAGE_IDS.map((id) => BY_ID.get(id))
+    .filter(Boolean)
+    .sort((a, b) => a.label.localeCompare(b.label, 'en'));
+}
+
+/** @type {{ code: string, label: string }[]} */
+export const AI_GENERATION_LANGUAGES = getAiGenerationLanguages().map((lang) => ({
+  code: lang.id,
+  label: lang.label,
+}));
+
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isAiGenerationLanguageId(value) {
+  const id = normalizeLanguageId(value);
+  return id != null && AI_GENERATION_LANGUAGE_IDS.includes(id);
+}
+
+/**
+ * Migrate stored practice/AI language onto a visible AI Generation Language id.
+ * Regional aliases collapse first; non-picker ids (e.g. fa, ga-IE) fall back.
+ * @param {unknown} value
+ * @param {string} [fallbackId]
+ * @returns {string}
+ */
+export function migrateAiGenerationLanguageId(
+  value,
+  fallbackId = DEFAULT_PRACTICE_LANGUAGE
+) {
+  const id = migrateLanguageId(value, fallbackId);
+  if (AI_GENERATION_LANGUAGE_IDS.includes(id)) return id;
+  const fallback = migrateLanguageId(fallbackId, DEFAULT_PRACTICE_LANGUAGE);
+  return AI_GENERATION_LANGUAGE_IDS.includes(fallback)
+    ? fallback
+    : DEFAULT_PRACTICE_LANGUAGE;
+}
+
 /** @type {Record<string, { language: string, code: string }>} */
 export const LANGUAGE_BY_CODE = Object.fromEntries(
   PRACTICE_LANGUAGES.map((lang) => [lang.id, { language: lang.label, code: lang.id }])
@@ -594,6 +668,19 @@ export function getAiInstruction(id) {
  */
 export function getTtsLocale(id) {
   return resolvePracticeLanguage(id)?.ttsLocale ?? 'en-US';
+}
+
+/**
+ * @param {string} id
+ * @returns {string}
+ */
+export function getTtsInstruction(id) {
+  const lang =
+    resolvePracticeLanguage(id) ?? resolvePracticeLanguage(DEFAULT_PRACTICE_LANGUAGE);
+  if (!lang) {
+    return 'Speak with a clear General American (United States) English accent and American pronunciation.';
+  }
+  return lang.ttsInstruction || `Speak naturally in ${lang.label}.`;
 }
 
 /**

@@ -41,7 +41,7 @@ import {
   isPrimarilyPersianScript,
   parseDictionaryLookupResponse,
 } from './utils/dictionaryLookup.js';
-import { migrateLanguageId, resolveDictionaryLanguage } from '@zaban/dictionary-languages';
+import { migrateLanguageId, resolveDictionaryLanguage, getTtsInstruction, getTtsLocale } from '@zaban/dictionary-languages';
 import {
   AI_PROMPT_MAX_LENGTH,
   escapeAiPromptForDisplay,
@@ -1343,8 +1343,20 @@ app.post('/tts', async (req, res) => {
     console.log(`[TTS:${requestId}] Using OpenRouter TTS:`, {
       voice: ttsVoice,
       format: 'mp3',
-      textLength: trimmedText.length
+      textLength: trimmedText.length,
+      locale: ttsLocale,
     });
+
+    const languageIdForTts =
+      typeof languageIdParam === 'string' && languageIdParam.trim()
+        ? migrateLanguageId(languageIdParam.trim())
+        : migrateLanguageId(ttsLocale);
+    const ttsAccentInstruction = getTtsInstruction(languageIdForTts);
+    // Prefer client locale, else registry locale for the language id.
+    const resolvedTtsLocale =
+      typeof localeParam === 'string' && localeParam.trim()
+        ? localeParam.trim()
+        : getTtsLocale(languageIdForTts);
 
     // 4️⃣ OPENROUTER TTS API REQUEST
     let audioBuffer = null;
@@ -1354,6 +1366,8 @@ app.post('/tts', async (req, res) => {
         voice: ttsVoice,
         speed,
         responseFormat: 'mp3',
+        locale: resolvedTtsLocale,
+        instructions: ttsAccentInstruction,
       });
 
       audioBuffer = buffer;

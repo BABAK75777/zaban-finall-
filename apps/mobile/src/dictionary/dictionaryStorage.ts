@@ -3,6 +3,7 @@ import {
   DEFAULT_PRACTICE_LANGUAGE,
   DEFAULT_TRANSLATION_LANGUAGE,
   isDictionaryLanguageCode,
+  migrateAiGenerationLanguageId,
   migrateLanguageId,
   type DictionaryLanguageCode,
 } from './dictionaryLanguages';
@@ -51,7 +52,8 @@ export function normalizeDictionarySettings(
     ?.practiceLanguage;
 
   // Legacy stores only had translationLanguage; that value drove AI too — preserve both.
-  const practiceLanguage = migrateLanguageId(
+  // AI Generation Language uses the visible picker set (regional aliases collapse here).
+  const practiceLanguage = migrateAiGenerationLanguageId(
     rawPractice ?? legacyTranslation,
     DEFAULT_PRACTICE_LANGUAGE
   ) as DictionaryLanguageCode;
@@ -212,7 +214,7 @@ export async function updateDictionarySettings(
       ...store.settings,
       ...patch,
       practiceLanguage: isDictionaryLanguageCode(patch.practiceLanguage)
-        ? (migrateLanguageId(patch.practiceLanguage) as DictionaryLanguageCode)
+        ? (migrateAiGenerationLanguageId(patch.practiceLanguage) as DictionaryLanguageCode)
         : store.settings.practiceLanguage,
       translationLanguage: isDictionaryLanguageCode(patch.translationLanguage)
         ? (migrateLanguageId(patch.translationLanguage) as DictionaryLanguageCode)

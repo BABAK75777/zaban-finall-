@@ -2,13 +2,18 @@ import { describe, expect, it } from 'vitest';
 import {
   PRACTICE_LANGUAGES,
   DICTIONARY_LANGUAGES,
+  AI_GENERATION_LANGUAGE_IDS,
+  AI_GENERATION_LANGUAGES,
   DEFAULT_PRACTICE_LANGUAGE,
   DEFAULT_TRANSLATION_LANGUAGE,
   migrateLanguageId,
+  migrateAiGenerationLanguageId,
   normalizeLanguageId,
   resolvePracticeLanguage,
+  getAiGenerationLanguages,
   getAiInstruction,
   getTtsLocale,
+  getTtsInstruction,
   getSttLocale,
   resolveTtsLocaleWithFallback,
 } from '../packages/dictionary-languages/index.js';
@@ -30,6 +35,54 @@ describe('practice language registry', () => {
     }
   });
 
+  it('exposes exactly 29 AI generation languages alphabetically', () => {
+    const list = getAiGenerationLanguages();
+    expect(list).toHaveLength(29);
+    expect(AI_GENERATION_LANGUAGE_IDS).toHaveLength(29);
+    expect(AI_GENERATION_LANGUAGES).toHaveLength(29);
+    const labels = list.map((l) => l.label);
+    expect(labels).toEqual([...labels].sort((a, b) => a.localeCompare(b, 'en')));
+    expect(labels).toEqual([
+      'Bulgarian',
+      'Chinese',
+      'Croatian',
+      'Czech',
+      'Danish',
+      'Dutch',
+      'English — United Kingdom',
+      'English — United States',
+      'Finnish',
+      'French',
+      'German',
+      'Greek',
+      'Hungarian',
+      'Icelandic',
+      'Italian',
+      'Japanese',
+      'Korean',
+      'Norwegian',
+      'Polish',
+      'Portuguese',
+      'Romanian',
+      'Russian',
+      'Serbian',
+      'Slovak',
+      'Slovenian',
+      'Spanish',
+      'Swedish',
+      'Turkish',
+      'Ukrainian',
+    ]);
+    expect(labels.filter((l) => l.includes('Canada')).length).toBe(0);
+    expect(labels.filter((l) => l.includes('Mexico')).length).toBe(0);
+    expect(labels.filter((l) => l.includes('Brazil')).length).toBe(0);
+    expect(labels.filter((l) => l.includes('Portugal')).length).toBe(0);
+    expect(labels.filter((l) => l.includes('Simplified')).length).toBe(0);
+    expect(labels.filter((l) => l.includes('Traditional')).length).toBe(0);
+    const ids = list.map((l) => l.id);
+    expect(new Set(ids).size).toBe(29);
+  });
+
   it('exposes US and UK English as distinct choices', () => {
     const us = resolvePracticeLanguage('en-US');
     const uk = resolvePracticeLanguage('en-GB');
@@ -40,7 +93,7 @@ describe('practice language registry', () => {
     expect(us?.label).not.toBe(uk?.label);
   });
 
-  it('migrates legacy codes to stable ids', () => {
+  it('migrates legacy and regional codes to stable canonical ids', () => {
     expect(migrateLanguageId('en')).toBe('en-US');
     expect(migrateLanguageId('es')).toBe('es-ES');
     expect(migrateLanguageId('fr')).toBe('fr-FR');
@@ -49,6 +102,17 @@ describe('practice language registry', () => {
     expect(migrateLanguageId('tr')).toBe('tr-TR');
     expect(migrateLanguageId('de')).toBe('de-DE');
     expect(migrateLanguageId('fa')).toBe('fa');
+    expect(migrateLanguageId('fr-CA')).toBe('fr-FR');
+    expect(migrateLanguageId('es-MX')).toBe('es-ES');
+    expect(migrateLanguageId('pt-PT')).toBe('pt-BR');
+    expect(migrateLanguageId('zh-Hant')).toBe('zh-Hans');
+  });
+
+  it('migrates non-picker practice languages onto AI visible set', () => {
+    expect(migrateAiGenerationLanguageId('fa')).toBe('en-US');
+    expect(migrateAiGenerationLanguageId('ga-IE')).toBe('en-US');
+    expect(migrateAiGenerationLanguageId('fr-CA')).toBe('fr-FR');
+    expect(migrateAiGenerationLanguageId('en-GB')).toBe('en-GB');
   });
 
   it('falls back safely for invalid stored values', () => {
@@ -74,16 +138,12 @@ describe('practice language registry', () => {
     expect(text).toContain('flat');
   });
 
-  it('keeps regional variants distinct', () => {
-    expect(resolvePracticeLanguage('es-ES')?.id).not.toBe(resolvePracticeLanguage('es-MX')?.id);
-    expect(resolvePracticeLanguage('pt-BR')?.id).not.toBe(resolvePracticeLanguage('pt-PT')?.id);
-    expect(resolvePracticeLanguage('fr-FR')?.id).not.toBe(resolvePracticeLanguage('fr-CA')?.id);
-    expect(resolvePracticeLanguage('zh-Hans')?.id).not.toBe(resolvePracticeLanguage('zh-Hant')?.id);
-  });
-
-  it('maps TTS and STT locales', () => {
+  it('maps TTS and STT locales with distinct US/UK accents', () => {
     expect(getTtsLocale('en-US')).toBe('en-US');
     expect(getTtsLocale('en-GB')).toBe('en-GB');
+    expect(getTtsInstruction('en-US').toLowerCase()).toContain('american');
+    expect(getTtsInstruction('en-GB').toLowerCase()).toContain('british');
+    expect(getTtsInstruction('en-US')).not.toBe(getTtsInstruction('en-GB'));
     expect(getSttLocale('ko-KR')).toBe('ko-KR');
     expect(getTtsLocale('tr-TR')).toBe('tr-TR');
   });

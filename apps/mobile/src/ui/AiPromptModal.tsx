@@ -31,6 +31,7 @@ import {
   resolvePracticeOutputLanguage,
 } from '../utils/resolvePracticeOutputLanguage';
 import {
+  dictionaryLanguageLabel,
   getAiInstruction,
   resolvePracticeLanguage,
 } from '../dictionary/dictionaryLanguages';
@@ -168,7 +169,9 @@ interface AiPromptModalProps {
   themeId: ThemeId;
   practiceWordDetails?: PracticeWordForAi[];
   useDictionaryInAi?: boolean;
+  /** AI Generation Language (practiceLanguage storage key). */
   dictionaryTargetLanguage: DictionaryLanguageCode;
+  onOpenAiGenerationLanguage?: () => void;
 }
 
 interface SliderRowProps {
@@ -228,6 +231,7 @@ export function AiPromptModal({
   practiceWordDetails = [],
   useDictionaryInAi = false,
   dictionaryTargetLanguage,
+  onOpenAiGenerationLanguage,
 }: AiPromptModalProps) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
@@ -556,6 +560,34 @@ export function AiPromptModal({
                   theme={theme}
                 />
 
+                {onOpenAiGenerationLanguage ? (
+                  <Pressable
+                    onPress={onOpenAiGenerationLanguage}
+                    accessibilityRole="button"
+                    accessibilityLabel={`AI Generation Language ${dictionaryLanguageLabel(dictionaryTargetLanguage)}`}
+                    testID={READING_TEST_IDS.settingsAiLanguage}
+                    style={({ pressed }) => [
+                      styles.languageRow,
+                      glassStyle(theme),
+                      { borderColor: colors.border },
+                      pressed && { opacity: 0.88 },
+                    ]}
+                  >
+                    <Text style={[styles.languageRowLabel, { color: colors.textDim }]}>
+                      AI Generation Language
+                    </Text>
+                    <View style={styles.languageRowValueWrap}>
+                      <Text
+                        style={[styles.languageRowValue, { color: colors.text }]}
+                        numberOfLines={1}
+                      >
+                        {dictionaryLanguageLabel(dictionaryTargetLanguage)}
+                      </Text>
+                      <Text style={[styles.languageRowChevron, { color: colors.textMuted }]}>˅</Text>
+                    </View>
+                  </Pressable>
+                ) : null}
+
                 <SliderRow
                   title="Tone / Style"
                   preset="toneStyle"
@@ -713,6 +745,39 @@ const styles = StyleSheet.create({
   sliderSection: {
     marginBottom: 2,
     width: '100%',
+  },
+  languageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: space.sm,
+    gap: 8,
+  },
+  languageRowLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    flexShrink: 1,
+  },
+  languageRowValueWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
+    maxWidth: '58%',
+  },
+  languageRowValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'right',
+  },
+  languageRowChevron: {
+    fontSize: 14,
   },
   sliderSectionTitle: {
     fontSize: 13,

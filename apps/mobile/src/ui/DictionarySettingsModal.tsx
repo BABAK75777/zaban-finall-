@@ -18,8 +18,6 @@ type Props = {
   onEntriesChange: (entries: DictionaryEntry[]) => void;
 };
 
-type PickerMode = 'practice' | 'translation' | null;
-
 export function DictionarySettingsModal({
   visible,
   onClose,
@@ -29,7 +27,7 @@ export function DictionarySettingsModal({
   onChange,
   onEntriesChange,
 }: Props) {
-  const [pickerMode, setPickerMode] = useState<PickerMode>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   return (
     <>
@@ -52,28 +50,18 @@ export function DictionarySettingsModal({
             settings={settings}
             entries={entries}
             onEntriesChange={onEntriesChange}
-            onOpenPracticeLanguagePicker={() => setPickerMode('practice')}
-            onOpenLanguagePicker={() => setPickerMode('translation')}
+            onOpenLanguagePicker={() => setPickerOpen(true)}
           />
         </ScrollView>
       </FullScreenModalShell>
 
       <DictionaryLanguagePicker
-        visible={visible && pickerMode === 'practice'}
-        theme={theme}
-        title="Practice language"
-        selected={settings.practiceLanguage}
-        onSelect={(code) => onChange({ practiceLanguage: code })}
-        onClose={() => setPickerMode(null)}
-      />
-
-      <DictionaryLanguagePicker
-        visible={visible && pickerMode === 'translation'}
+        visible={visible && pickerOpen}
         theme={theme}
         title="Translate meanings to"
         selected={settings.translationLanguage}
         onSelect={(code) => onChange({ translationLanguage: code })}
-        onClose={() => setPickerMode(null)}
+        onClose={() => setPickerOpen(false)}
       />
     </>
   );
@@ -82,6 +70,7 @@ export function DictionarySettingsModal({
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: {
-    paddingBottom: space.xxl,
+    paddingHorizontal: space.md,
+    paddingBottom: space.lg,
   },
 });

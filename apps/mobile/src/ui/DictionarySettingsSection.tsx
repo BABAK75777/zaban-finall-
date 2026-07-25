@@ -10,7 +10,6 @@ import { SavedWordsList } from './SavedWordsList';
 
 export const DICTIONARY_SETTINGS_TEST_IDS = {
   section: 'dictionary-settings-section',
-  practiceLanguageRow: 'dictionary-practice-language-row',
   languageRow: 'dictionary-language-row',
 } as const;
 
@@ -19,7 +18,6 @@ interface DictionarySettingsSectionProps {
   settings: DictionarySettingsV1;
   entries: DictionaryEntry[];
   onEntriesChange: (entries: DictionaryEntry[]) => void;
-  onOpenPracticeLanguagePicker: () => void;
   onOpenLanguagePicker: () => void;
 }
 
@@ -28,34 +26,14 @@ export function DictionarySettingsSection({
   settings,
   entries,
   onEntriesChange,
-  onOpenPracticeLanguagePicker,
   onOpenLanguagePicker,
 }: DictionarySettingsSectionProps) {
   return (
     <View style={styles.wrap} testID={DICTIONARY_SETTINGS_TEST_IDS.section}>
       <Text style={[styles.subtitle, { color: theme.textMuted }]}>
-        Practice language controls AI text and speech. Meanings language is only for word lookups.
+        Meanings language is only for word lookups. AI Generation Language is set in Settings →
+        Languages or Settings → AI.
       </Text>
-
-      <Pressable
-        onPress={onOpenPracticeLanguagePicker}
-        accessibilityRole="button"
-        accessibilityLabel={`Practice language ${dictionaryLanguageLabel(settings.practiceLanguage)}`}
-        testID={DICTIONARY_SETTINGS_TEST_IDS.practiceLanguageRow}
-        style={({ pressed }) => [
-          styles.selectorRow,
-          { borderColor: theme.border, backgroundColor: theme.bg },
-          pressed && { opacity: 0.85 },
-        ]}
-      >
-        <Text style={[styles.selectorLabel, { color: theme.textDim }]}>Practice language</Text>
-        <View style={styles.selectorValueWrap}>
-          <Text style={[styles.selectorValue, { color: theme.text }]}>
-            {dictionaryLanguageLabel(settings.practiceLanguage)}
-          </Text>
-          <Text style={[styles.selectorChevron, { color: theme.textMuted }]}>˅</Text>
-        </View>
-      </Pressable>
 
       <Pressable
         onPress={onOpenLanguagePicker}
@@ -118,15 +96,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    flexShrink: 0,
   },
   selectorValue: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
+    maxWidth: 160,
+    textAlign: 'right',
   },
   selectorChevron: {
-    fontSize: 18,
-    fontWeight: '700',
-    lineHeight: 20,
+    fontSize: 14,
   },
 });

@@ -12,25 +12,23 @@ describe('DictionarySettingsSection', () => {
   const theme = getTheme('dark');
   const noop = () => {};
 
-  it('shows practice and meanings language rows', () => {
+  it('shows meanings language row and not AI generation language', () => {
     const { getByTestId, queryByTestId } = render(
       <DictionarySettingsSection
         theme={theme}
         settings={defaultDictionarySettings()}
         entries={[]}
         onEntriesChange={noop}
-        onOpenPracticeLanguagePicker={noop}
         onOpenLanguagePicker={noop}
       />
     );
 
-    expect(getByTestId(DICTIONARY_SETTINGS_TEST_IDS.practiceLanguageRow)).toBeTruthy();
+    expect(queryByTestId('dictionary-practice-language-row')).toBeNull();
     expect(getByTestId(DICTIONARY_SETTINGS_TEST_IDS.languageRow)).toBeTruthy();
     expect(queryByTestId('dictionary-lang-fa')).toBeNull();
   });
 
-  it('opens practice and meanings pickers via callbacks', () => {
-    const onOpenPracticeLanguagePicker = jest.fn();
+  it('opens meanings picker via callback', () => {
     const onOpenLanguagePicker = jest.fn();
     const { getByTestId } = render(
       <DictionarySettingsSection
@@ -38,14 +36,11 @@ describe('DictionarySettingsSection', () => {
         settings={{ ...defaultDictionarySettings(), translationLanguage: 'de-DE' as never }}
         entries={[]}
         onEntriesChange={noop}
-        onOpenPracticeLanguagePicker={onOpenPracticeLanguagePicker}
         onOpenLanguagePicker={onOpenLanguagePicker}
       />
     );
 
-    fireEvent.press(getByTestId(DICTIONARY_SETTINGS_TEST_IDS.practiceLanguageRow));
     fireEvent.press(getByTestId(DICTIONARY_SETTINGS_TEST_IDS.languageRow));
-    expect(onOpenPracticeLanguagePicker).toHaveBeenCalledTimes(1);
     expect(onOpenLanguagePicker).toHaveBeenCalledTimes(1);
   });
 
@@ -56,7 +51,6 @@ describe('DictionarySettingsSection', () => {
         settings={defaultDictionarySettings()}
         entries={[]}
         onEntriesChange={noop}
-        onOpenPracticeLanguagePicker={noop}
         onOpenLanguagePicker={noop}
       />
     );

@@ -8,6 +8,11 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { openRouterSpeech, OpenRouterError } from './utils/openrouter.js';
 import { isOpenRouterConfigured } from './utils/env.js';
+import {
+  getTtsInstruction,
+  getTtsLocale,
+  migrateLanguageId,
+} from '@zaban/dictionary-languages';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,11 +116,15 @@ export async function generateChunkAudio({
     }
 
     try {
+      const localeFromVoice = String(voiceId || '').split('-Standard')[0] || '';
+      const languageId = migrateLanguageId(localeFromVoice || 'en-US');
       const { buffer } = await openRouterSpeech({
         text,
         voice,
         speed,
         responseFormat,
+        locale: localeFromVoice || getTtsLocale(languageId),
+        instructions: getTtsInstruction(languageId),
       });
 
       if (abortSignal?.aborted) {

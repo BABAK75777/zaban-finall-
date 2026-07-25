@@ -90,6 +90,7 @@ import {
 import { AD_SAFE_GAP_DP } from '../src/ads/adBannerLayout';
 import { TappableHeroSentence } from '../src/ui/TappableHeroSentence';
 import { DictionarySettingsModal } from '../src/ui/DictionarySettingsModal';
+import { AiGenerationLanguageModal } from '../src/ui/AiGenerationLanguageModal';
 import { PracticeTextModal } from '../src/ui/PracticeTextModal';
 import { WordLookupSheet } from '../src/ui/WordLookupSheet';
 import { NavPills } from '../src/ui/NavPills';
@@ -124,6 +125,7 @@ import { useAppStateActive } from '../src/ads/useAppStateActive';
 import { useWordHighlight } from '../src/reading/useWordHighlight';
 import {
   defaultDictionarySettings,
+  dictionaryLanguageLabel,
   findDictionaryEntry,
   addMeaningWord,
   hashReadingText,
@@ -361,6 +363,7 @@ export default function ReadingScreen() {
   const [showSettings, setShowSettings] = useState(false);
   const [showAiPrompt, setShowAiPrompt] = useState(false);
   const [showDictionarySettings, setShowDictionarySettings] = useState(false);
+  const [showAiLanguageModal, setShowAiLanguageModal] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
   const ocrLoadingRef = useRef(false);
   const { themeId, theme, setTheme, resetTheme } = useTheme();
@@ -2112,15 +2115,14 @@ export default function ReadingScreen() {
                       { borderColor: colors.border, backgroundColor: colors.bg },
                       pressed && { opacity: 0.85 },
                     ]}
-                    onPress={() => {
-                      openAfterSettings(() => router.push('/onboarding?mode=review'));
-                    }}
+                    onPress={() => setShowAiLanguageModal(true)}
                     accessibilityRole="button"
-                    accessibilityLabel="How to use Mamlio"
-                    testID={READING_TEST_IDS.settingsHelp}
+                    accessibilityLabel={`Languages ${dictionaryLanguageLabel(dictionarySettings.practiceLanguage)}`}
+                    testID={READING_TEST_IDS.settingsLanguages}
                   >
-                    <Text style={[styles.helpLinkLabel, { color: colors.textMuted }]}>
-                      How to use Mamlio
+                    <Text style={[styles.helpLinkLabel, { color: colors.text }]}>Languages</Text>
+                    <Text style={[styles.helpLinkValue, { color: colors.textMuted }]}>
+                      {dictionaryLanguageLabel(dictionarySettings.practiceLanguage)}
                     </Text>
                   </Pressable>
 
@@ -2444,9 +2446,22 @@ export default function ReadingScreen() {
         themeId={themeId}
         practiceWordDetails={aiPracticeBatch}
         dictionaryTargetLanguage={dictionarySettings.practiceLanguage}
+        onOpenAiGenerationLanguage={() => setShowAiLanguageModal(true)}
         useDictionaryInAi={
           dictionarySettings.useDictionaryInAi && aiPracticeBatch.length > 0
         }
+      />
+
+      <AiGenerationLanguageModal
+        visible={showAiLanguageModal}
+        theme={theme}
+        selected={dictionarySettings.practiceLanguage}
+        onAccept={(code) => {
+          void handleDictionarySettingsChange({
+            practiceLanguage: code as DictionarySettingsV1['practiceLanguage'],
+          });
+        }}
+        onClose={() => setShowAiLanguageModal(false)}
       />
 
       <WordLookupSheet
@@ -2520,10 +2535,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginBottom: 12,
     alignItems: 'center',
+    gap: 4,
   },
   helpLinkLabel: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  helpLinkValue: {
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   settingsGrid: {
     flexDirection: 'row',

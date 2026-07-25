@@ -32,6 +32,18 @@ describe('dictionary language persistence', () => {
     expect(settings.translationLanguage).toBe('en-US');
   });
 
+  it('migrates old regional practice values onto canonical AI choices', () => {
+    const settings = normalizeDictionarySettings({
+      version: 1,
+      practiceLanguage: 'fr-CA',
+      translationLanguage: 'fa',
+      saveWordsOnLookup: true,
+      useDictionaryInAi: true,
+    } as never);
+    expect(settings.practiceLanguage).toBe('fr-FR');
+    expect(settings.translationLanguage).toBe('fa');
+  });
+
   it('invalid stored practice language falls back safely', () => {
     const settings = normalizeDictionarySettings({
       version: 1,
@@ -44,19 +56,11 @@ describe('dictionary language persistence', () => {
     expect(settings.translationLanguage).toBe('fa');
   });
 
-  it('persists practice language across reload', async () => {
+  it('persists practice language across reload (Settings sync key)', async () => {
     await updateDictionarySettings({ practiceLanguage: 'en-GB' as never });
     const store = await loadDictionaryStore();
     expect(store.settings.practiceLanguage).toBe('en-GB');
     expect(store.settings.translationLanguage).toBe('fa');
-  });
-
-  it('offline/error path does not reset selection when saving fails after change', async () => {
-    await updateDictionarySettings({ practiceLanguage: 'de-DE' as never });
-    const raw = await AsyncStorage.getItem(DICTIONARY_STORE_KEY);
-    expect(raw).toContain('de-DE');
-    const again = await loadDictionaryStore();
-    expect(again.settings.practiceLanguage).toBe('de-DE');
   });
 
   it('keeps practice and translation fields separate', async () => {
@@ -75,5 +79,18 @@ describe('dictionary language persistence', () => {
     const store = await loadDictionaryStore();
     expect(store.settings.practiceLanguage).toBe('fr-FR');
     expect(store.settings.translationLanguage).toBe('fa');
+
+    await updateDictionarySettings({ translationLanguage: 'de-DE' as never });
+    const again = await loadDictionaryStore();
+    expect(again.settings.practiceLanguage).toBe('fr-FR');
+    expect(again.settings.translationLanguage).toBe('de-DE');
+  });
+
+  it('offline/error path does not reset selection when saving fails after change', async () => {
+    await updateDictionarySettings({ practiceLanguage: 'de-DE' as never });
+    const raw = await AsyncStorage.getItem(DICTIONARY_STORE_KEY);
+    expect(raw).toContain('de-DE');
+    const again = await loadDictionaryStore();
+    expect(again.settings.practiceLanguage).toBe('de-DE');
   });
 });

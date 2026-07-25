@@ -10,10 +10,13 @@ describe('dictionary / practice language labels', () => {
     expect(DICTIONARY_LANGUAGES.map((l) => l.label)).toContain('English — United States');
     expect(DICTIONARY_LANGUAGES.map((l) => l.label)).toContain('English — United Kingdom');
     expect(DICTIONARY_LANGUAGES.map((l) => l.label)).toContain('Persian');
+    expect(DICTIONARY_LANGUAGES.map((l) => l.label)).toContain('French');
+    expect(DICTIONARY_LANGUAGES.map((l) => l.label)).not.toContain('French — Canada');
   });
 
   it('labels stable ids', () => {
     expect(dictionaryLanguageLabel('en-US')).toBe('English — United States');
     expect(dictionaryLanguageLabel('en-GB')).toBe('English — United Kingdom');
+    expect(dictionaryLanguageLabel('fr-FR')).toBe('French');
   });
 });

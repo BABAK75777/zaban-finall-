@@ -148,9 +148,78 @@ function getTtsProfiles() {
 }
 
 /**
+ * Build the JSON body sent to OpenRouter /audio/speech.
+ * US/UK must differ via locale-backed instructions (and Gemini-style accent tags in input).
+ * @param {{
+ *   model: string,
+ *   text: string,
+ *   voice: string,
+ *   responseFormat: string,
+ *   speed: number,
+ *   locale?: string,
+ *   instructions?: string,
+ * }} params
+ */
+export function buildOpenRouterSpeechBody({
+  model,
+  text,
+  voice,
+  responseFormat,
+  speed,
+  locale,
+  instructions,
+}) {
+  const accentInstruction =
+    typeof instructions === 'string' && instructions.trim() ? instructions.trim() : '';
+  const localeTag =
+    typeof locale === 'string' && locale.trim() ? locale.trim() : '';
+
+  let input = text;
+  // Gemini TTS documents inline bracket tags for delivery steering; keep speech text intact.
+  if (accentInstruction && String(model).includes('gemini')) {
+    const tag =
+      localeTag === 'en-GB'
+        ? '[British English accent]'
+        : localeTag === 'en-US'
+          ? '[American English accent]'
+          : `[${accentInstruction}]`;
+    input = `${tag} ${text}`;
+  }
+
+  /** @type {Record<string, unknown>} */
+  const body = {
+    model,
+    input,
+    voice,
+    response_format: responseFormat,
+    speed,
+  };
+
+  if (accentInstruction) {
+    // OpenAI-compatible speech field; providers that ignore it still receive a distinct request.
+    body.instructions = accentInstruction;
+    // OpenRouter provider passthrough for OpenAI-style instruction steering when routed there.
+    body.provider = {
+      options: {
+        openai: { instructions: accentInstruction },
+      },
+    };
+  }
+
+  return body;
+}
+
+/**
  * Text-to-speech via OpenRouter POST /audio/speech
  *
- * @param {{ text: string, voice?: string, speed?: number, responseFormat?: 'mp3' | 'wav' | 'pcm' }} params
+ * @param {{
+ *   text: string,
+ *   voice?: string,
+ *   speed?: number,
+ *   responseFormat?: 'mp3' | 'wav' | 'pcm',
+ *   locale?: string,
+ *   instructions?: string,
+ * }} params
  * @returns {Promise<{ buffer: Buffer, mimeType: string, format: string }>}
  */
 export async function openRouterSpeech({
@@ -158,6 +227,8 @@ export async function openRouterSpeech({
   voice = 'female',
   speed = 1.0,
   responseFormat = 'mp3',
+  locale,
+  instructions,
 }) {
   const profiles = getTtsProfiles();
   let lastError = null;
@@ -165,25 +236,30 @@ export async function openRouterSpeech({
   for (const profile of profiles) {
     const providerVoice = resolveVoiceForModel(profile.model, voice);
     const format = profile.responseFormat;
+    const body = buildOpenRouterSpeechBody({
+      model: profile.model,
+      text,
+      voice: providerVoice,
+      responseFormat: format,
+      speed,
+      locale,
+      instructions,
+    });
 
     console.log('[OpenRouter] provider=openrouter TTS request:', {
       model: profile.model,
       voice: providerVoice,
       speed,
       format,
+      locale: locale || null,
+      instructions: instructions || null,
       textLength: text.length,
     });
 
     try {
       const response = await openRouterFetch('/audio/speech', {
         method: 'POST',
-        body: JSON.stringify({
-          model: profile.model,
-          input: text,
-          voice: providerVoice,
-          response_format: format,
-          speed,
-        }),
+        body: JSON.stringify(body),
       });
 
       const arrayBuffer = await response.arrayBuffer();
