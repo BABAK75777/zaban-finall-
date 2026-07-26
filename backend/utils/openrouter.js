@@ -9,6 +9,10 @@ import {
   getOpenRouterChatModel,
   isOpenRouterConfigured,
 } from './env.js';
+import {
+  normalizeTtsGender,
+  resolveProviderVoiceId,
+} from '@zaban/dictionary-languages';
 
 export class OpenRouterError extends Error {
   /**
@@ -81,40 +85,13 @@ const TTS_PROFILES = [
   },
 ];
 
-function isMaleVoiceToken(voice) {
-  const v = String(voice || '').trim().toLowerCase();
-  return (
-    v === 'male' ||
-    v === 'onyx' ||
-    v === 'echo' ||
-    v === 'fable' ||
-    v === 'ash' ||
-    v === 'rex' ||
-    v === 'leo'
-  );
-}
-
 /**
  * Map app voice tokens to provider-specific voice ids.
  * @param {string} model
  * @param {string} voice
  */
-function resolveVoiceForModel(model, voice) {
-  const male = isMaleVoiceToken(voice);
-
-  if (model.includes('grok-voice')) {
-    return male ? 'Rex' : 'Ara';
-  }
-
-  if (model.includes('gemini') && model.includes('tts')) {
-    return male ? 'Puck' : 'Aoede';
-  }
-
-  if (model.includes('mai-voice')) {
-    return 'en-US-Harper:MAI-Voice-2';
-  }
-
-  return voice || 'default';
+export function resolveVoiceForModel(model, voice) {
+  return resolveProviderVoiceId(model, voice);
 }
 
 function pcm16ToWav(pcmBuffer, sampleRate = 24000, channels = 1) {
@@ -173,6 +150,8 @@ export function buildOpenRouterSpeechBody({
     typeof instructions === 'string' && instructions.trim() ? instructions.trim() : '';
   const localeTag =
     typeof locale === 'string' && locale.trim() ? locale.trim() : '';
+  const gender = normalizeTtsGender(voice);
+  const providerVoice = resolveVoiceForModel(model, gender);
 
   let input = text;
   // Gemini TTS documents inline bracket tags for delivery steering; keep speech text intact.
@@ -190,7 +169,7 @@ export function buildOpenRouterSpeechBody({
   const body = {
     model,
     input,
-    voice,
+    voice: providerVoice,
     response_format: responseFormat,
     speed,
   };
@@ -232,14 +211,15 @@ export async function openRouterSpeech({
 }) {
   const profiles = getTtsProfiles();
   let lastError = null;
+  const gender = normalizeTtsGender(voice);
 
   for (const profile of profiles) {
-    const providerVoice = resolveVoiceForModel(profile.model, voice);
+    const providerVoice = resolveVoiceForModel(profile.model, gender);
     const format = profile.responseFormat;
     const body = buildOpenRouterSpeechBody({
       model: profile.model,
       text,
-      voice: providerVoice,
+      voice: gender,
       responseFormat: format,
       speed,
       locale,
@@ -249,10 +229,11 @@ export async function openRouterSpeech({
     console.log('[OpenRouter] provider=openrouter TTS request:', {
       model: profile.model,
       voice: providerVoice,
+      gender,
       speed,
       format,
       locale: locale || null,
-      instructions: instructions || null,
+      instructions: instructions ? '[set]' : null,
       textLength: text.length,
     });
 
@@ -279,11 +260,13 @@ export async function openRouterSpeech({
 
       console.log('[OpenRouter] provider=openrouter TTS response:', {
         model: profile.model,
+        voice: providerVoice,
+        gender,
         bytes: buffer.length,
         mimeType,
       });
 
-      return { buffer, mimeType, format: outFormat };
+      return { buffer, mimeType, format: outFormat, providerVoice, model: profile.model };
     } catch (err) {
       lastError = err;
       const msg = err instanceof Error ? err.message : String(err);

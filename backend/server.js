@@ -41,7 +41,7 @@ import {
   isPrimarilyPersianScript,
   parseDictionaryLookupResponse,
 } from './utils/dictionaryLookup.js';
-import { migrateLanguageId, resolveDictionaryLanguage, getTtsInstruction, getTtsLocale } from '@zaban/dictionary-languages';
+import { migrateLanguageId, resolveDictionaryLanguage, getTtsInstruction, getTtsLocale, buildTtsCacheVoiceKey, resolveTtsVoiceMapping } from '@zaban/dictionary-languages';
 import {
   AI_PROMPT_MAX_LENGTH,
   escapeAiPromptForDisplay,
@@ -928,17 +928,13 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Helper function to compute hash for cache key (includes all parameters)
-// Phase 6: computeHash uses fixed values for removed options
-function computeHash(text, speed = 1.0, sampleRate = 24000) {
+// Helper function to compute hash for cache key (must include locale + gender).
+function computeHash(text, speed = 1.0, sampleRate = 24000, cacheVoiceKey = 'en-US|en-US|female') {
   const normalized = text.trim().replace(/\s+/g, ' ').replace(/\n+/g, '\n');
-  // Phase 6: Fixed values for voiceId, preset, pitch, format
-  const voiceId = 'en-US-Standard-C';
   const preset = 'default';
   const pitch = 0.0;
   const format = 'mp3';
-  // Include all parameters that affect audio output
-  const hashInput = `${normalized}|${voiceId}|${preset}|${speed}|${pitch}|${format}|${sampleRate}`;
+  const hashInput = `${normalized}|${cacheVoiceKey}|${preset}|${speed}|${pitch}|${format}|${sampleRate}`;
   return crypto.createHash('sha1').update(hashInput).digest('hex');
 }
 
@@ -1155,31 +1151,40 @@ app.post('/tts', async (req, res) => {
       languageId: languageIdParam,
     } = req.body;
     
-    // Phase 6: Fixed values for removed options — locale separates en-US vs en-GB caches.
+    // Phase 6: Fixed values for removed options — locale+gender separate caches.
     const ttsLocale =
       typeof localeParam === 'string' && localeParam.trim()
         ? localeParam.trim()
         : 'en-US';
-    const voiceId = `${ttsLocale}-Standard-C`;
+    const languageIdForTts =
+      typeof languageIdParam === 'string' && languageIdParam.trim()
+        ? migrateLanguageId(languageIdParam.trim())
+        : migrateLanguageId(ttsLocale);
+    const voiceMapping = resolveTtsVoiceMapping({
+      languageId: languageIdForTts,
+      gender: voiceParam,
+    });
+    if (!voiceMapping.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: 'UNSUPPORTED_VOICE',
+        debugId: requestId,
+        details: 'The selected voice is unavailable for this language.',
+        languageId: languageIdForTts,
+        gender: voiceMapping.gender,
+      });
+    }
+    const ttsVoice = voiceMapping.appVoice;
+    const resolvedTtsLocale = voiceMapping.locale || ttsLocale;
+    const voiceId = buildTtsCacheVoiceKey({
+      locale: resolvedTtsLocale,
+      gender: ttsVoice,
+      languageId: voiceMapping.languageId,
+    });
     const preset = 'default';
     const pitch = 0.0;
     const format = 'mp3';
-
-    const normalizeTtsVoice = (raw) => {
-      if (typeof raw !== 'string') return 'female';
-      const v = raw.trim().toLowerCase();
-      if (v === 'male' || v === 'onyx' || v === 'echo' || v === 'fable' || v === 'ash') {
-        return 'male';
-      }
-      if (v === 'female' || v === 'nova' || v === 'shimmer' || v === 'coral' || v === 'sage') {
-        return 'female';
-      }
-      return v;
-    };
-    const ttsVoice = normalizeTtsVoice(voiceParam);
-    if (typeof languageIdParam === 'string' && languageIdParam.trim()) {
-      console.log(`[TTS:${requestId}] languageId=${languageIdParam.trim()} locale=${ttsLocale}`);
-    }
+    console.log(`[TTS:${requestId}] languageId=${voiceMapping.languageId} locale=${resolvedTtsLocale} gender=${ttsVoice}`);
     
     // Validate and reject unknown keys (strict mode for new API) - only if hash provided
     const allowedKeys = ['text', 'path', 'hash', 'speed', 'sampleRate', 'voice', 'locale', 'languageId'];
@@ -1239,8 +1244,8 @@ app.post('/tts', async (req, res) => {
     }
 
     // 2️⃣ CACHE LOOKUP (if hash provided or compute from text with all parameters)
-    // Phase 6: computeHash only takes speed and sampleRate (other params are fixed)
-    const cacheHash = hashParam || computeHash(trimmedText, speed, sampleRate);
+    // Cache key must include locale + gender so AI Woman / AI Man never share audio.
+    const cacheHash = hashParam || computeHash(trimmedText, speed, sampleRate, voiceId);
     
     // Use secure user-specific cache if authenticated
     let cachedBuffer = null;
@@ -1342,26 +1347,19 @@ app.post('/tts', async (req, res) => {
 
     console.log(`[TTS:${requestId}] Using OpenRouter TTS:`, {
       voice: ttsVoice,
+      gender: ttsVoice,
       format: 'mp3',
       textLength: trimmedText.length,
-      locale: ttsLocale,
+      locale: resolvedTtsLocale,
+      languageId: voiceMapping.languageId,
     });
 
-    const languageIdForTts =
-      typeof languageIdParam === 'string' && languageIdParam.trim()
-        ? migrateLanguageId(languageIdParam.trim())
-        : migrateLanguageId(ttsLocale);
-    const ttsAccentInstruction = getTtsInstruction(languageIdForTts);
-    // Prefer client locale, else registry locale for the language id.
-    const resolvedTtsLocale =
-      typeof localeParam === 'string' && localeParam.trim()
-        ? localeParam.trim()
-        : getTtsLocale(languageIdForTts);
+    const ttsAccentInstruction = voiceMapping.accentInstruction;
 
     // 4️⃣ OPENROUTER TTS API REQUEST
     let audioBuffer = null;
     try {
-      const { buffer } = await openRouterSpeech({
+      const { buffer, providerVoice, model: providerModel } = await openRouterSpeech({
         text: trimmedText,
         voice: ttsVoice,
         speed,
@@ -1375,6 +1373,10 @@ app.post('/tts', async (req, res) => {
       console.log(`[TTS:${requestId}] OpenRouter TTS response:`, {
         bufferLength: audioBuffer.length,
         isValid: audioBuffer.length > 0,
+        providerVoice: providerVoice || null,
+        model: providerModel || null,
+        gender: ttsVoice,
+        locale: resolvedTtsLocale,
       });
 
       if (audioBuffer.length === 0) {

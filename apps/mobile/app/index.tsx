@@ -133,6 +133,8 @@ import {
   loadDictionaryStore,
   mutateDictionaryStore,
   migrateAiGenerationLanguageId,
+  resolveTtsLocaleWithFallback,
+  resolveTtsVoiceMapping,
   recordWordInReadingText,
   removeDictionaryEntry,
   recordPracticeUsageAfterAiGeneration,
@@ -162,7 +164,6 @@ import {
 import { requestOcrFromImageDataUrl } from '../src/ocr/ocrApi';
 import { imageAssetToDataUrl } from '../src/ocr/imageAssetToDataUrl';
 import { logDictionaryLanguageSelection, logPracticeLanguageSelection } from '../src/utils/resolvePracticeOutputLanguage';
-import { resolveTtsLocaleWithFallback } from '../src/dictionary/dictionaryLanguages';
 import { fetchWithTimeout, RequestTimeoutError } from '../src/utils/fetchWithTimeout';
 import {
   ASYNC_CHUNKING_THRESHOLD,
@@ -176,6 +177,7 @@ import {
   truncateForTtsRequest,
   type ReadUnit,
 } from '../src/utils/longTextProcessing';
+import { isStaleTtsResponse } from '../src/tts/ttsRequestLifecycle';
 
 const DEFAULT_TTS_VOICE: AiVoiceType = 'female';
 const DEFAULT_READ_UNIT = '1' as const;
@@ -198,10 +200,6 @@ function readUnitToSplitMode(unit: ReadUnit): SentenceCacheSplitMode {
     default:
       return 'full';
   }
-}
-
-function mapTtsVoiceToApi(voiceType: AiVoiceType): string {
-  return voiceType;
 }
 
 function hapticLight() {
@@ -337,10 +335,15 @@ function safeGetPlaybackRate(
     return fallback;
   }
 }
-function sentenceToMobileId(sentence: string, voiceApi: string): string {
+function sentenceToMobileId(
+  sentence: string,
+  voiceApi: string,
+  locale = 'en-US',
+  languageId = 'en-US'
+): string {
   const normalized = sentence.trim().replace(/\s+/g, ' ').replace(/\n+/g, '\n');
   const speedKey = formatTtsSpeed(TTS_GENERATION_SPEED);
-  const key = `${normalized}|${HASH_SOURCE}|${voiceApi}|default|${speedKey}|0|mp3|24000`;
+  const key = `${normalized}|${HASH_SOURCE}|${voiceApi}|${locale}|${languageId}|default|${speedKey}|0|mp3|24000`;
   const h1 = fnv1a32(key, 0x811c9dc5);
   const h2 = fnv1a32(key, 0x01000193);
   const h3 = fnv1a32(key, 0x9e3779b9);
@@ -464,6 +467,27 @@ export default function ReadingScreen() {
   const statusRef = useRef<UiStatus>('idle');
   const aiGenerationTokenRef = useRef(0);
   const languageChangeInFlightRef = useRef(false);
+  const ttsFetchTokenRef = useRef(0);
+
+  const resolveCurrentTtsMapping = useCallback(() => {
+    return resolveTtsVoiceMapping({
+      languageId: dictionarySettingsRef.current.practiceLanguage,
+      gender: ttsVoiceTypeRef.current,
+    });
+  }, []);
+
+  const buildSentenceId = useCallback(
+    (sentence: string) => {
+      const mapping = resolveCurrentTtsMapping();
+      return sentenceToMobileId(
+        sentence,
+        mapping.appVoice,
+        mapping.locale,
+        mapping.languageId
+      );
+    },
+    [resolveCurrentTtsMapping]
+  );
 
   useEffect(() => {
     ocrLoadingRef.current = ocrLoading;
@@ -484,6 +508,7 @@ export default function ReadingScreen() {
       }
       console.log(`[LONG_TEXT] timeout op=playback_watchdog ms=${deadlineMs}`);
       playbackGenRef.current += 1;
+      ttsFetchTokenRef.current += 1;
       guard.cancel();
       player.cancel();
       fetchingStartedAtRef.current = null;
@@ -534,6 +559,9 @@ export default function ReadingScreen() {
       setAiSpeed(speed);
       aiSpeedRef.current = speed;
       setTextSize(settings.textSize);
+      const gender = settings.ttsVoiceGender === 'male' ? 'male' : 'female';
+      setTtsVoiceType(gender);
+      ttsVoiceTypeRef.current = gender;
       applyAiPlaybackRate(player, speed, 'settings_restore');
     })();
   }, [player]);
@@ -643,9 +671,8 @@ export default function ReadingScreen() {
   );
 
   const sentenceToId = useCallback(
-    (sentence: string) =>
-      Promise.resolve(sentenceToMobileId(sentence, mapTtsVoiceToApi(ttsVoiceTypeRef.current))),
-    []
+    (sentence: string) => Promise.resolve(buildSentenceId(sentence)),
+    [buildSentenceId]
   );
 
   const fetchTtsAudio = useCallback(async (sentenceId: string, sentence: string): Promise<Uint8Array> => {
@@ -658,6 +685,11 @@ export default function ReadingScreen() {
         `[LONG_TEXT] processing chunk=truncated len=${ttsText.length} max=${MAX_TTS_CHUNK_CHARS}`
       );
     }
+    const fetchToken = ttsFetchTokenRef.current;
+    const mapping = resolveCurrentTtsMapping();
+    if (!mapping.ok) {
+      throw new Error('The selected voice is unavailable for this language.');
+    }
     return inFlightFetchRef.current.getOrFetch(sentenceId, async () => {
       let response: Response;
       try {
@@ -668,12 +700,10 @@ export default function ReadingScreen() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               text: ttsText,
-              voice: mapTtsVoiceToApi(ttsVoiceTypeRef.current),
+              voice: mapping.appVoice,
               speed: TTS_GENERATION_SPEED,
-              locale: resolveTtsLocaleWithFallback(
-                dictionarySettingsRef.current.practiceLanguage
-              ).locale,
-              languageId: dictionarySettingsRef.current.practiceLanguage,
+              locale: mapping.locale,
+              languageId: mapping.languageId,
             }),
           },
           REQUEST_TIMEOUT_MS.tts,
@@ -685,7 +715,13 @@ export default function ReadingScreen() {
         }
         throw err;
       }
+      if (isStaleTtsResponse(ttsFetchTokenRef.current, fetchToken)) {
+        throw new Error('Voice request canceled.');
+      }
       const data = await response.json().catch(() => ({}));
+      if (isStaleTtsResponse(ttsFetchTokenRef.current, fetchToken)) {
+        throw new Error('Voice request canceled.');
+      }
       if (!response.ok || !data?.ok || typeof data.audioBase64 !== 'string') {
         const msg =
           data?.details || data?.error || `TTS request failed (${response.status})`;
@@ -695,13 +731,17 @@ export default function ReadingScreen() {
       console.log(
         '[TTS:Mobile] network POST /tts sentenceId=',
         sentenceId,
+        'gender=',
+        mapping.gender,
+        'locale=',
+        mapping.locale,
         'totalNetworkRequests=',
         totalNetworkRequestsRef.current
       );
       console.log('[LONG_TEXT] chunkSuccess index=network sentenceId=', sentenceId);
       return base64ToBytes(data.audioBase64);
     });
-  }, []);
+  }, [resolveCurrentTtsMapping]);
 
   const releaseShadowGuard = useCallback(() => {
     const token = shadowGuardTokenRef.current;
@@ -838,10 +878,7 @@ export default function ReadingScreen() {
       });
 
       if (parts.length > 0) {
-        const voice = mapTtsVoiceToApi(ttsVoiceTypeRef.current);
-        const keepIds = selectCacheKeepIds(parts, centerIndex, (s) =>
-          sentenceToMobileId(s, voice)
-        );
+        const keepIds = selectCacheKeepIds(parts, centerIndex, (s) => buildSentenceId(s));
         void pruneSentenceCacheToKeepIds(keepIds).catch((err) => {
           console.error('[TTS:Mobile] prune cache after text sync failed:', err);
         });
@@ -938,9 +975,7 @@ export default function ReadingScreen() {
     const maxIdx = parts.length === 0 ? 0 : parts.length - 1;
     const idx = Math.min(Math.max(0, sentenceIndexRef.current), maxIdx);
     const sentence = parts[idx] ?? '';
-    const sentenceId = sentence
-      ? sentenceToMobileId(sentence, mapTtsVoiceToApi(ttsVoiceTypeRef.current))
-      : null;
+    const sentenceId = sentence ? buildSentenceId(sentence) : null;
     await saveReadingSession({
       version: 1,
       text: persistText,
@@ -963,6 +998,15 @@ export default function ReadingScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      const settings = await loadAppSettings();
+      if (cancelled) {
+        return;
+      }
+      const genderFromSettings =
+        settings.ttsVoiceGender === 'male' ? 'male' : 'female';
+      setTtsVoiceType(genderFromSettings);
+      ttsVoiceTypeRef.current = genderFromSettings;
+
       const session = await loadReadingSession();
       if (cancelled) {
         return;
@@ -978,21 +1022,25 @@ export default function ReadingScreen() {
         if (session.aiSpeed > 0) {
           logAiSpeedPersisted(clampUiSpeed(session.aiSpeed));
         }
-        if (session.ttsVoiceType === 'male' || session.ttsVoiceType === 'female') {
-          setTtsVoiceType(session.ttsVoiceType);
-          ttsVoiceTypeRef.current = session.ttsVoiceType;
-        }
-        const restoredVoice =
-          session.ttsVoiceType === 'male' || session.ttsVoiceType === 'female'
-            ? session.ttsVoiceType
-            : DEFAULT_TTS_VOICE;
+        // Gender authority is app settings (independent of language / session text).
+        const restoredVoice = genderFromSettings;
         const parts = createSafeReadingChunks(session.text, unit);
         setSentences(parts);
+        const restoredMapping = resolveTtsVoiceMapping({
+          languageId: dictionarySettingsRef.current.practiceLanguage,
+          gender: restoredVoice,
+        });
         const idx = resolveRestoredSentenceIndex(
           parts,
           session.sentenceIndex,
           session.sentenceId,
-          (s) => sentenceToMobileId(s, mapTtsVoiceToApi(restoredVoice))
+          (s) =>
+            sentenceToMobileId(
+              s,
+              restoredMapping.appVoice,
+              restoredMapping.locale,
+              restoredMapping.languageId
+            )
         );
         sentenceIndexRef.current = idx;
         setSentenceIndex(idx);
@@ -1242,11 +1290,17 @@ export default function ReadingScreen() {
         });
       } catch (err) {
         if (gen === playbackGenRef.current) {
-          setStatus('error');
           const msg = err instanceof Error ? err.message : 'Playback failed';
+          const canceled = /canceled|cancelled|aborted/i.test(msg);
           console.log(`[LONG_TEXT] chunkFailed index=${index} reason=${msg}`);
-          setStatusDetail(source === 'replay' ? 'Replay failed' : msg);
-          console.error('[TTS:Mobile] playSentence error:', err);
+          if (canceled) {
+            setStatus('stopped');
+            setStatusDetail('Stopped.');
+          } else {
+            setStatus('error');
+            setStatusDetail(source === 'replay' ? 'Replay failed' : msg);
+            console.error('[TTS:Mobile] playSentence error:', err);
+          }
         }
       } finally {
         fetchingStartedAtRef.current = null;
@@ -1307,10 +1361,7 @@ export default function ReadingScreen() {
     }
     clearHighlightedWord('navigation');
     const nextSentence = parts[next] ?? '';
-    const nextId = sentenceToMobileId(
-      nextSentence,
-      mapTtsVoiceToApi(ttsVoiceTypeRef.current)
-    );
+    const nextId = buildSentenceId(nextSentence);
     sentenceIndexRef.current = next;
     setSentenceIndex(next);
     logNavigation({ direction: 'next', sentenceIndex: next, sentenceId: nextId });
@@ -1354,10 +1405,7 @@ export default function ReadingScreen() {
     }
     clearHighlightedWord('navigation');
     const prevSentence = parts[prev] ?? '';
-    const prevId = sentenceToMobileId(
-      prevSentence,
-      mapTtsVoiceToApi(ttsVoiceTypeRef.current)
-    );
+    const prevId = buildSentenceId(prevSentence);
     sentenceIndexRef.current = prev;
     setSentenceIndex(prev);
     logNavigation({ direction: 'back', sentenceIndex: prev, sentenceId: prevId });
@@ -1390,6 +1438,7 @@ export default function ReadingScreen() {
     void saveAppSettings({
       aiPlaybackSpeed: DEFAULT_UI_AI_SPEED,
       textSize: DEFAULT_TEXT_SIZE,
+      ttsVoiceGender: DEFAULT_TTS_VOICE,
     });
     syncSentencesFromText(textRef.current, DEFAULT_READ_UNIT);
     setSentenceIndex(0);
@@ -1481,6 +1530,7 @@ export default function ReadingScreen() {
           setShowAiPrompt(false);
           setShowAiLanguageModal(false);
           cancelPlayback();
+          ttsFetchTokenRef.current += 1;
           clearWordLookupState();
           handleTextChange('');
           setSentences([]);
@@ -1899,10 +1949,7 @@ export default function ReadingScreen() {
 
         const idx = Math.min(Math.max(0, sentenceIndexRef.current), parts.length - 1);
         const sentence = parts[idx] ?? '';
-        const sentenceId = sentenceToMobileId(
-          sentence,
-          mapTtsVoiceToApi(ttsVoiceTypeRef.current)
-        );
+        const sentenceId = buildSentenceId(sentence);
         const cachedPath = await getCachedSentenceAudio(sentenceId);
 
         if (!cachedPath) {
@@ -2390,9 +2437,18 @@ export default function ReadingScreen() {
                             },
                           ]}
                           onPress={() => {
+                            if (ttsVoiceTypeRef.current === voice) {
+                              return;
+                            }
                             setTtsVoiceType(voice);
                             ttsVoiceTypeRef.current = voice;
-                            syncSentencesFromText(textRef.current);
+                            ttsFetchTokenRef.current += 1;
+                            cancelPlayback();
+                            void clearSentenceCache().catch(() => {});
+                            void saveAppSettings({ ttsVoiceGender: voice });
+                            setStatus('idle');
+                            setStatusDetail('Voice updated. Tap AI to hear with the new voice.');
+                            void persistReadingSession();
                           }}
                         >
                           <Text
@@ -2401,7 +2457,7 @@ export default function ReadingScreen() {
                               { color: selected ? colors.selection.text : colors.text },
                             ]}
                           >
-                            {voice === 'male' ? 'Male' : 'Female'}
+                            {voice === 'male' ? 'AI Man' : 'AI Woman'}
                           </Text>
                         </Pressable>
                       );

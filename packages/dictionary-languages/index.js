@@ -715,3 +715,157 @@ export function resolveTtsLocaleWithFallback(id, availableLocales) {
   if (en) return { locale: en, fellBack: true };
   return { locale: normalized[0], fellBack: true };
 }
+
+/** @typedef {'female' | 'male'} TtsGender */
+
+export const DEFAULT_TTS_GENDER = 'female';
+
+/**
+ * Normalize UI / API gender tokens to stable male|female.
+ * @param {unknown} value
+ * @returns {TtsGender}
+ */
+export function normalizeTtsGender(value) {
+  const v = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (
+    v === 'male' ||
+    v === 'man' ||
+    v === 'onyx' ||
+    v === 'echo' ||
+    v === 'fable' ||
+    v === 'ash' ||
+    v === 'rex' ||
+    v === 'leo' ||
+    v === 'puck' ||
+    v === 'charon'
+  ) {
+    return 'male';
+  }
+  if (
+    v === 'female' ||
+    v === 'woman' ||
+    v === 'nova' ||
+    v === 'shimmer' ||
+    v === 'coral' ||
+    v === 'sage' ||
+    v === 'ara' ||
+    v === 'eve' ||
+    v === 'aoede' ||
+    v === 'kore'
+  ) {
+    return 'female';
+  }
+  return DEFAULT_TTS_GENDER;
+}
+
+/**
+ * Provider voice IDs for OpenRouter TTS models (verified gendered pairs).
+ * Grok uses lowercase ids; Gemini uses TitleCase prebuilt names.
+ * @param {string} model
+ * @param {unknown} gender
+ * @returns {string}
+ */
+export function resolveProviderVoiceId(model, gender) {
+  const g = normalizeTtsGender(gender);
+  const m = String(model || '');
+  if (m.includes('grok-voice')) {
+    return g === 'male' ? 'rex' : 'ara';
+  }
+  if (m.includes('gemini') && m.includes('tts')) {
+    return g === 'male' ? 'Puck' : 'Aoede';
+  }
+  if (m.includes('mai-voice')) {
+    return g === 'male' ? 'en-US-Andrew:MAI-Voice-2' : 'en-US-Harper:MAI-Voice-2';
+  }
+  return g;
+}
+
+/**
+ * Central language + gender → TTS request mapping.
+ * @param {{ languageId?: unknown, gender?: unknown }} params
+ * @returns {{
+ *   ok: boolean,
+ *   languageId: string,
+ *   locale: string,
+ *   gender: TtsGender,
+ *   accentInstruction: string,
+ *   appVoice: TtsGender,
+ *   unsupportedReason: string | null,
+ * }}
+ */
+export function resolveTtsVoiceMapping({ languageId, gender } = {}) {
+  const g = normalizeTtsGender(gender);
+  const raw = languageId == null ? '' : String(languageId).trim();
+  const canonical = raw ? normalizeLanguageId(raw) : null;
+  const resolvedId =
+    canonical && AI_GENERATION_LANGUAGE_IDS.includes(canonical)
+      ? canonical
+      : raw
+        ? migrateAiGenerationLanguageId(raw, DEFAULT_PRACTICE_LANGUAGE)
+        : DEFAULT_PRACTICE_LANGUAGE;
+  // Input must be empty (defaults), an AI picker id, or an alias of one (e.g. fr-CA → fr-FR).
+  const inputSupported =
+    !raw ||
+    (canonical != null && AI_GENERATION_LANGUAGE_IDS.includes(canonical));
+  const lang = resolvePracticeLanguage(resolvedId);
+
+  if (!lang || !inputSupported) {
+    return {
+      ok: false,
+      languageId: DEFAULT_PRACTICE_LANGUAGE,
+      locale: 'en-US',
+      gender: g,
+      accentInstruction: getTtsInstruction(DEFAULT_PRACTICE_LANGUAGE),
+      appVoice: g,
+      unsupportedReason: 'unsupported_language',
+    };
+  }
+  return {
+    ok: true,
+    languageId: resolvedId,
+    locale: lang.ttsLocale,
+    gender: g,
+    accentInstruction: getTtsInstruction(resolvedId),
+    appVoice: g,
+    unsupportedReason: null,
+  };
+}
+
+/**
+ * Cache / diagnostics key that must differ for gender and locale.
+ * @param {{ locale: string, gender: unknown, languageId?: string }} params
+ * @returns {string}
+ */
+export function buildTtsCacheVoiceKey({ locale, gender, languageId }) {
+  const g = normalizeTtsGender(gender);
+  const loc = String(locale || 'en-US').trim() || 'en-US';
+  const lang = languageId ? migrateLanguageId(languageId, loc) : loc;
+  return `${lang}|${loc}|${g}`;
+}
+
+/**
+ * All 29 AI languages × 2 genders for contract tests.
+ * @returns {Array<ReturnType<typeof resolveTtsVoiceMapping> & { providerVoiceByModel: Record<string, string> }>}
+ */
+export function enumerateAiTtsVoiceMappings() {
+  const models = [
+    'x-ai/grok-voice-tts-1.0',
+    'google/gemini-3.1-flash-tts-preview',
+  ];
+  /** @type {Array<ReturnType<typeof resolveTtsVoiceMapping> & { providerVoiceByModel: Record<string, string> }>} */
+  const rows = [];
+  for (const languageId of AI_GENERATION_LANGUAGE_IDS) {
+    for (const gender of /** @type {const} */ (['female', 'male'])) {
+      const mapping = resolveTtsVoiceMapping({ languageId, gender });
+      rows.push({
+        ...mapping,
+        providerVoiceByModel: Object.fromEntries(
+          models.map((model) => [model, resolveProviderVoiceId(model, gender)])
+        ),
+      });
+    }
+  }
+  return rows;
+}

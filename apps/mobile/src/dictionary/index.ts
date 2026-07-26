@@ -18,6 +18,8 @@ export {
   migrateLanguageId,
   resolvePracticeLanguage,
   resolveTtsLocaleWithFallback,
+  resolveTtsVoiceMapping,
+  normalizeTtsGender,
 } from './dictionaryLanguages';
 export type { DictionaryLanguageCode } from './dictionaryLanguages';
 export type {

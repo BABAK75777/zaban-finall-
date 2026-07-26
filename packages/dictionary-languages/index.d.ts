@@ -58,3 +58,30 @@ export declare function resolveTtsLocaleWithFallback(
   id: string,
   availableLocales?: string[]
 ): { locale: string; fellBack: boolean };
+
+export type TtsGender = 'female' | 'male';
+export declare const DEFAULT_TTS_GENDER: TtsGender;
+export declare function normalizeTtsGender(value: unknown): TtsGender;
+export declare function resolveProviderVoiceId(model: string, gender: unknown): string;
+export declare function resolveTtsVoiceMapping(params?: {
+  languageId?: unknown;
+  gender?: unknown;
+}): {
+  ok: boolean;
+  languageId: string;
+  locale: string;
+  gender: TtsGender;
+  accentInstruction: string;
+  appVoice: TtsGender;
+  unsupportedReason: string | null;
+};
+export declare function buildTtsCacheVoiceKey(params: {
+  locale: string;
+  gender: unknown;
+  languageId?: string;
+}): string;
+export declare function enumerateAiTtsVoiceMappings(): Array<
+  ReturnType<typeof resolveTtsVoiceMapping> & {
+    providerVoiceByModel: Record<string, string>;
+  }
+>;

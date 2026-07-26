@@ -17,9 +17,14 @@ import {
   migrateAiGenerationLanguageId,
   migrateLanguageId,
   normalizeLanguageId,
+  normalizeTtsGender,
   resolveDictionaryLanguage,
   resolvePracticeLanguage,
   resolveTtsLocaleWithFallback,
+  resolveTtsVoiceMapping,
+  buildTtsCacheVoiceKey,
+  enumerateAiTtsVoiceMappings,
+  DEFAULT_TTS_GENDER,
 } from '@zaban/dictionary-languages';
 
 export {
@@ -28,6 +33,7 @@ export {
   DEFAULT_DICTIONARY_LANGUAGE,
   DEFAULT_PRACTICE_LANGUAGE,
   DEFAULT_TRANSLATION_LANGUAGE,
+  DEFAULT_TTS_GENDER,
   DICTIONARY_LANGUAGES,
   PRACTICE_LANGUAGES,
   getAiGenerationLanguages,
@@ -41,9 +47,13 @@ export {
   migrateAiGenerationLanguageId,
   migrateLanguageId,
   normalizeLanguageId,
+  normalizeTtsGender,
   resolveDictionaryLanguage,
   resolvePracticeLanguage,
   resolveTtsLocaleWithFallback,
+  resolveTtsVoiceMapping,
+  buildTtsCacheVoiceKey,
+  enumerateAiTtsVoiceMappings,
 };
 
 export type DictionaryLanguageCode = (typeof PRACTICE_LANGUAGES)[number]['id'];
