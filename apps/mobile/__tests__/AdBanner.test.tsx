@@ -28,7 +28,7 @@ jest.mock('../src/config/adMob', () => ({
   getBannerAdUnitId: jest.fn(() => 'ca-app-pub-3940256099942544/9214589741'),
   getBannerAdUnitMode: jest.fn(() => 'test'),
   resolveBannerAdUnitId: jest.fn(() => 'ca-app-pub-3940256099942544/9214589741'),
-  PRODUCTION_BANNER_AD_UNIT_ID: 'ca-app-pub-2133767058275325/7034060635',
+  PRODUCTION_BANNER_AD_UNIT_ID: 'ca-app-pub-1237555604477660/7026750373',
 }));
 
 jest.mock('../src/ads/useAdsConsent', () => ({
