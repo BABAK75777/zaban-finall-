@@ -1,12 +1,12 @@
-/** Dark theme design tokens — standard neutral dark palette. */
+/** Dark theme design tokens — deep slate-navy palette (سورمه‌ای تیره). */
 
 export const DARK_TOKENS = {
 
-  backgroundPrimary: '#121212',
+  backgroundPrimary: '#151B28',
 
-  backgroundSecondary: '#1C1C1E',
+  backgroundSecondary: '#1C2433',
 
-  backgroundTertiary: '#2C2C2E',
+  backgroundTertiary: '#2A3344',
 
   accentPrimary: '#FFFFFF',
 
@@ -34,7 +34,7 @@ export const DARK_TOKENS = {
 
   micGlow: 'rgba(167, 149, 255, 0.48)',
 
-  navButtonBackground: 'rgba(44, 44, 46, 0.92)',
+  navButtonBackground: 'rgba(42, 51, 68, 0.92)',
 
   navButtonBorder: 'rgba(255, 255, 255, 0.14)',
 

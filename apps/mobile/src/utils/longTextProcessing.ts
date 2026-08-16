@@ -177,10 +177,14 @@ export function createUnitReadingChunks(text: string, unit: ReadUnit): string[] 
 
 export function createSafeReadingChunks(text: string, unit: ReadUnit): string[] {
   const trimmed = text.trim();
-  console.log(`[LONG_TEXT] inputLength=${trimmed.length}`);
+  if (__DEV__) {
+    console.log(`[LONG_TEXT] inputLength=${trimmed.length}`);
+  }
   const unitChunks = createUnitReadingChunks(trimmed, unit);
   const safe = applyTtsSafeChunkLimits(unitChunks);
-  console.log(`[LONG_TEXT] chunksCreated=${safe.length}`);
+  if (__DEV__) {
+    console.log(`[LONG_TEXT] chunksCreated=${safe.length}`);
+  }
   return safe;
 }
 

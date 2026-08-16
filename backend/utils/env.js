@@ -59,3 +59,11 @@ export function getOpenRouterTtsModel() {
 export function getOpenRouterChatModel() {
   return process.env.OPENROUTER_CHAT_MODEL || 'openai/gpt-4o-mini';
 }
+
+/**
+ * Vision/OCR model on OpenRouter (override via OPENROUTER_VISION_MODEL)
+ * @returns {string}
+ */
+export function getOpenRouterVisionModel() {
+  return process.env.OPENROUTER_VISION_MODEL || 'openai/gpt-4o-mini';
+}

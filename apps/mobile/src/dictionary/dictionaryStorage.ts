@@ -7,7 +7,18 @@ import {
   migrateLanguageId,
   type DictionaryLanguageCode,
 } from './dictionaryLanguages';
+import {
+  ensureProcessableDictionaryLanguage,
+  ensureProcessablePracticeLanguage,
+  isDictionaryLanguageProductActive,
+  isPracticeLanguageProductActive,
+} from './languageAvailability';
 import type { DictionaryEntry, DictionarySettingsV1, DictionaryStoreV1 } from './dictionaryTypes';
+import {
+  entryMatchesPracticeLanguage,
+  migrateEntryPracticeLanguage,
+  normalizePracticeLanguageId,
+} from './entryPracticeLanguage';
 import {
   MAX_PRACTICE_WORDS,
   migrateDictionaryEntries,
@@ -53,14 +64,16 @@ export function normalizeDictionarySettings(
 
   // Legacy stores only had translationLanguage; that value drove AI too — preserve both.
   // AI Generation Language uses the visible picker set (regional aliases collapse here).
-  const practiceLanguage = migrateAiGenerationLanguageId(
-    rawPractice ?? legacyTranslation,
-    DEFAULT_PRACTICE_LANGUAGE
+  // Product availability then coerces in_progress / hidden ids to active defaults.
+  const practiceLanguage = ensureProcessablePracticeLanguage(
+    migrateAiGenerationLanguageId(
+      rawPractice ?? legacyTranslation,
+      DEFAULT_PRACTICE_LANGUAGE
+    )
   ) as DictionaryLanguageCode;
 
-  const translationLanguage = migrateLanguageId(
-    legacyTranslation,
-    DEFAULT_TRANSLATION_LANGUAGE
+  const translationLanguage = ensureProcessableDictionaryLanguage(
+    migrateLanguageId(legacyTranslation, DEFAULT_TRANSLATION_LANGUAGE)
   ) as DictionaryLanguageCode;
 
   return {
@@ -105,13 +118,15 @@ function parseStore(raw: string): DictionaryStoreV1 | null {
               typeof e.word === 'string' &&
               typeof e.meaning === 'string' &&
               typeof e.lookupCount === 'number'
-          ).map((e) => ({
-            ...e,
-            targetLanguage: migrateLanguageId(
-              e.targetLanguage,
-              settings.translationLanguage
-            ) as DictionaryLanguageCode,
-          }))
+          ).map((e) =>
+            migrateEntryPracticeLanguage({
+              ...e,
+              targetLanguage: migrateLanguageId(
+                e.targetLanguage,
+                settings.translationLanguage
+              ) as DictionaryLanguageCode,
+            })
+          )
         )
       : [];
 
@@ -210,15 +225,25 @@ export async function updateDictionarySettings(
   patch: Partial<DictionarySettingsV1>
 ): Promise<DictionarySettingsV1> {
   const next = await mutateDictionaryStore((store) => {
+    let practiceLanguage = store.settings.practiceLanguage;
+    if (isDictionaryLanguageCode(patch.practiceLanguage)) {
+      const migrated = migrateAiGenerationLanguageId(patch.practiceLanguage);
+      if (isPracticeLanguageProductActive(migrated)) {
+        practiceLanguage = migrated as DictionaryLanguageCode;
+      }
+    }
+    let translationLanguage = store.settings.translationLanguage;
+    if (isDictionaryLanguageCode(patch.translationLanguage)) {
+      const migrated = migrateLanguageId(patch.translationLanguage);
+      if (isDictionaryLanguageProductActive(migrated)) {
+        translationLanguage = migrated as DictionaryLanguageCode;
+      }
+    }
     const settings = normalizeDictionarySettings({
       ...store.settings,
       ...patch,
-      practiceLanguage: isDictionaryLanguageCode(patch.practiceLanguage)
-        ? (migrateAiGenerationLanguageId(patch.practiceLanguage) as DictionaryLanguageCode)
-        : store.settings.practiceLanguage,
-      translationLanguage: isDictionaryLanguageCode(patch.translationLanguage)
-        ? (migrateLanguageId(patch.translationLanguage) as DictionaryLanguageCode)
-        : store.settings.translationLanguage,
+      practiceLanguage,
+      translationLanguage,
     });
     return { ...store, settings };
   });
@@ -228,10 +253,12 @@ export async function updateDictionarySettings(
 export function findDictionaryEntry(
   entries: DictionaryEntry[],
   word: string,
-  targetLanguage: DictionaryLanguageCode
+  practiceLanguage: DictionaryLanguageCode
 ): DictionaryEntry | undefined {
   const key = normalizeLookupWord(word);
-  return entries.find((e) => e.word === key && e.targetLanguage === targetLanguage);
+  return entries.find(
+    (e) => e.word === key && entryMatchesPracticeLanguage(e, practiceLanguage)
+  );
 }
 
 export function recordWordInReadingText(
@@ -266,24 +293,26 @@ export function upsertDictionaryEntry(
     displayWord: string;
     meaning: string;
     partOfSpeech?: string;
-    targetLanguage: DictionaryLanguageCode;
+    practiceLanguage: DictionaryLanguageCode;
     textAppearanceCount?: number;
   }
 ): DictionaryEntry[] {
   const key = normalizeLookupWord(input.displayWord);
   if (!key) return entries;
 
+  const practiceLanguage = normalizePracticeLanguageId(input.practiceLanguage);
   const now = Date.now();
-  const existing = findDictionaryEntry(entries, key, input.targetLanguage);
+  const existing = findDictionaryEntry(entries, key, practiceLanguage);
 
   if (existing) {
     return entries.map((e) =>
-      e.word === key && e.targetLanguage === input.targetLanguage
+      e.word === key && entryMatchesPracticeLanguage(e, practiceLanguage)
         ? {
             ...e,
             displayWord: input.displayWord,
             meaning: input.meaning,
             partOfSpeech: input.partOfSpeech ?? e.partOfSpeech,
+            practiceLanguage,
             lookupCount: e.lookupCount + 1,
             textAppearanceCount: Math.max(
               e.textAppearanceCount,
@@ -299,11 +328,12 @@ export function upsertDictionaryEntry(
     displayWord: input.displayWord,
     meaning: input.meaning,
     partOfSpeech: input.partOfSpeech,
-    targetLanguage: input.targetLanguage,
+    practiceLanguage,
+    targetLanguage: practiceLanguage,
     savedAt: now,
     lookupCount: 1,
     textAppearanceCount: input.textAppearanceCount ?? 1,
-    id: `${input.targetLanguage}:${key}`,
+    id: `${practiceLanguage}:${key}`,
     targetUses: 3,
     usedCount: 0,
     difficultyStarred: false,
@@ -316,14 +346,14 @@ export function upsertDictionaryEntry(
 export function incrementLookupCount(
   entries: DictionaryEntry[],
   word: string,
-  targetLanguage: DictionaryLanguageCode
+  practiceLanguage: DictionaryLanguageCode
 ): DictionaryEntry[] {
   const key = normalizeLookupWord(word);
   if (!key) return entries;
 
   let changed = false;
   const next = entries.map((e) => {
-    if (e.word !== key || e.targetLanguage !== targetLanguage) return e;
+    if (e.word !== key || !entryMatchesPracticeLanguage(e, practiceLanguage)) return e;
     changed = true;
     return { ...e, lookupCount: e.lookupCount + 1 };
   });
@@ -333,32 +363,35 @@ export function incrementLookupCount(
 export function removeDictionaryEntry(
   entries: DictionaryEntry[],
   word: string,
-  targetLanguage: DictionaryLanguageCode
+  practiceLanguage: DictionaryLanguageCode
 ): DictionaryEntry[] {
   const key = normalizeLookupWord(word);
   if (!key) return entries;
-  return entries.filter((e) => !(e.word === key && e.targetLanguage === targetLanguage));
+  return entries.filter(
+    (e) => !(e.word === key && entryMatchesPracticeLanguage(e, practiceLanguage))
+  );
 }
 
-/** Manual add from settings — merges duplicates by normalized word + language. */
+/** Manual add from settings — merges duplicates by normalized word + practice language. */
 export function addManualDictionaryEntry(
   entries: DictionaryEntry[],
   input: {
     displayWord: string;
     meaning?: string;
-    targetLanguage: DictionaryLanguageCode;
+    practiceLanguage: DictionaryLanguageCode;
   }
 ): DictionaryEntry[] {
   const key = normalizeLookupWord(input.displayWord);
   if (!key) return entries;
 
+  const practiceLanguage = normalizePracticeLanguageId(input.practiceLanguage);
   const displayWord = input.displayWord.trim() || key;
   const meaning = (input.meaning ?? '').trim();
-  const existing = findDictionaryEntry(entries, key, input.targetLanguage);
+  const existing = findDictionaryEntry(entries, key, practiceLanguage);
 
   if (existing) {
     return entries.map((e) =>
-      e.word === key && e.targetLanguage === input.targetLanguage
+      e.word === key && entryMatchesPracticeLanguage(e, practiceLanguage)
         ? {
             ...e,
             displayWord,
@@ -372,11 +405,12 @@ export function addManualDictionaryEntry(
     word: key,
     displayWord,
     meaning,
-    targetLanguage: input.targetLanguage,
+    practiceLanguage,
+    targetLanguage: practiceLanguage,
     savedAt: Date.now(),
     lookupCount: 0,
     textAppearanceCount: 0,
-    id: `${input.targetLanguage}:${key}`,
+    id: `${practiceLanguage}:${key}`,
     targetUses: 3,
     usedCount: 0,
     difficultyStarred: false,

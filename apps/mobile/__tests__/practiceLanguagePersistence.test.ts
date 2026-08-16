@@ -32,7 +32,7 @@ describe('dictionary language persistence', () => {
     expect(settings.translationLanguage).toBe('en-US');
   });
 
-  it('migrates old regional practice values onto canonical AI choices', () => {
+  it('coerces in-progress regional practice aliases to active default', () => {
     const settings = normalizeDictionarySettings({
       version: 1,
       practiceLanguage: 'fr-CA',
@@ -40,7 +40,8 @@ describe('dictionary language persistence', () => {
       saveWordsOnLookup: true,
       useDictionaryInAi: true,
     } as never);
-    expect(settings.practiceLanguage).toBe('fr-FR');
+    // fr-CA → fr-FR (registry) → en-US (product availability)
+    expect(settings.practiceLanguage).toBe('en-US');
     expect(settings.translationLanguage).toBe('fa');
   });
 
@@ -56,14 +57,32 @@ describe('dictionary language persistence', () => {
     expect(settings.translationLanguage).toBe('fa');
   });
 
-  it('persists practice language across reload (Settings sync key)', async () => {
-    await updateDictionarySettings({ practiceLanguage: 'en-GB' as never });
+  it('stale unavailable practiceLanguage cannot remain after normalize', () => {
+    const settings = normalizeDictionarySettings({
+      version: 1,
+      practiceLanguage: 'de-DE',
+      translationLanguage: 'fa',
+      saveWordsOnLookup: true,
+      useDictionaryInAi: true,
+    } as never);
+    expect(settings.practiceLanguage).toBe('en-US');
+  });
+
+  it('persists active practice language across reload', async () => {
+    await updateDictionarySettings({ practiceLanguage: 'tr-TR' as never });
     const store = await loadDictionaryStore();
-    expect(store.settings.practiceLanguage).toBe('en-GB');
+    expect(store.settings.practiceLanguage).toBe('tr-TR');
     expect(store.settings.translationLanguage).toBe('fa');
   });
 
-  it('keeps practice and translation fields separate', async () => {
+  it('rejects unavailable practiceLanguage updates (keeps prior active)', async () => {
+    await updateDictionarySettings({ practiceLanguage: 'en-US' as never });
+    await updateDictionarySettings({ practiceLanguage: 'en-GB' as never });
+    const store = await loadDictionaryStore();
+    expect(store.settings.practiceLanguage).toBe('en-US');
+  });
+
+  it('keeps practice and translation fields separate for active langs', async () => {
     await saveDictionaryStore({
       version: 1,
       settings: {
@@ -75,22 +94,33 @@ describe('dictionary language persistence', () => {
       },
       entries: [],
     });
-    await updateDictionarySettings({ practiceLanguage: 'fr-FR' as never });
+    await updateDictionarySettings({ practiceLanguage: 'tr-TR' as never });
     const store = await loadDictionaryStore();
-    expect(store.settings.practiceLanguage).toBe('fr-FR');
+    expect(store.settings.practiceLanguage).toBe('tr-TR');
     expect(store.settings.translationLanguage).toBe('fa');
 
-    await updateDictionarySettings({ translationLanguage: 'de-DE' as never });
+    await updateDictionarySettings({ translationLanguage: 'en-US' as never });
     const again = await loadDictionaryStore();
-    expect(again.settings.practiceLanguage).toBe('fr-FR');
-    expect(again.settings.translationLanguage).toBe('de-DE');
+    expect(again.settings.practiceLanguage).toBe('tr-TR');
+    expect(again.settings.translationLanguage).toBe('en-US');
+  });
+
+  it('rejects unavailable Dictionary translationLanguage updates', async () => {
+    await updateDictionarySettings({
+      practiceLanguage: 'en-US' as never,
+      translationLanguage: 'fa' as never,
+    });
+    await updateDictionarySettings({ translationLanguage: 'de-DE' as never });
+    const store = await loadDictionaryStore();
+    expect(store.settings.translationLanguage).toBe('fa');
+    expect(store.settings.practiceLanguage).toBe('en-US');
   });
 
   it('offline/error path does not reset selection when saving fails after change', async () => {
-    await updateDictionarySettings({ practiceLanguage: 'de-DE' as never });
+    await updateDictionarySettings({ practiceLanguage: 'tr-TR' as never });
     const raw = await AsyncStorage.getItem(DICTIONARY_STORE_KEY);
-    expect(raw).toContain('de-DE');
+    expect(raw).toContain('tr-TR');
     const again = await loadDictionaryStore();
-    expect(again.settings.practiceLanguage).toBe('de-DE');
+    expect(again.settings.practiceLanguage).toBe('tr-TR');
   });
 });

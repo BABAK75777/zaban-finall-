@@ -10,6 +10,12 @@ export interface DictionaryEntry {
   displayWord: string;
   meaning: string;
   partOfSpeech?: string;
+  /**
+   * Practice language this saved word belongs to (en-US, tr-TR, …).
+   * Never the Dictionary translation/meanings language.
+   */
+  practiceLanguage?: DictionaryLanguageCode;
+  /** @deprecated Legacy partition key; prefer practiceLanguage. */
   targetLanguage: DictionaryLanguageCode;
   savedAt: number;
   lookupCount: number;

@@ -2,7 +2,7 @@
  * Mobile Storage Adapter - FileSystem-based storage for mobile
  */
 
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import type { StorageAdapter, SessionMetadata, ChunkMetadata } from '@zaban/tts-core';
 
 const CHUNKS_DIR = `${FileSystem.documentDirectory}tts_chunks/`;

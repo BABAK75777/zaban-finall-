@@ -21,6 +21,7 @@ import {
 import { InFlightTtsFetch } from '../packages/tts-mobile/src/inFlightTtsFetch';
 import { allowNetworkForSource } from '../packages/tts-mobile/src/cacheFirstPolicy';
 import { buildKeepSentenceIds } from '../packages/tts-mobile/src/buildKeepSentenceIds';
+import { uint8ArrayToBase64 } from '../packages/tts-mobile/src/uint8ArrayToBase64';
 
 describe('sentence audio replay (Phase 2)', () => {
   it('first play: 1 network fetch; 10 replays: 0 additional fetches', async () => {
@@ -586,5 +587,39 @@ describe('buildKeepSentenceIds (index cache window)', () => {
     }
     expect(ids[0]).toBe('id:S2.');
     expect(ids[ids.length - 1]).toBe('id:S4.');
+  });
+});
+
+describe('Uint8Array → Base64 (RN Blob ArrayBuffer regression)', () => {
+  beforeEach(() => {
+    asyncStore.clear();
+    deletedPaths.length = 0;
+  });
+
+  it('encodes TTS-like binary without constructing a Blob from ArrayBufferView', () => {
+    const bytes = new Uint8Array([0xff, 0xfb, 0x90, 0x00, 1, 2, 3, 250, 251]);
+    const expected = Buffer.from(bytes).toString('base64');
+    expect(uint8ArrayToBase64(bytes)).toBe(expected);
+  });
+
+  it('still encodes when RN Blob throws ArrayBufferView error', async () => {
+    const OriginalBlob = globalThis.Blob;
+    globalThis.Blob = class {
+      constructor() {
+        throw new Error(
+          "Creating blobs from 'ArrayBuffer' and 'ArrayBufferView' are not supported"
+        );
+      }
+    } as unknown as typeof Blob;
+
+    try {
+      const bytes = new Uint8Array([0xff, 0xfb, 9, 8, 7]);
+      expect(uint8ArrayToBase64(bytes)).toBe(Buffer.from(bytes).toString('base64'));
+      const stored = await putCachedSentenceAudio('rn-blob-reg', 'h-reg', bytes);
+      expect(stored).toContain('rn-blob-reg');
+      expect(await isSentenceGenerated('rn-blob-reg')).toBe(true);
+    } finally {
+      globalThis.Blob = OriginalBlob;
+    }
   });
 });

@@ -34,14 +34,51 @@ describe('resolveOutputLanguage', () => {
     expect(result).toEqual({ language: 'Turkish', code: 'tr', explicit: true });
   });
 
+  it('does not detect Turkish inside Persian ترکیب', () => {
+    const result = resolveOutputLanguage('داستان درباره ترکیب علم و هنر');
+    expect(result.code).not.toBe('tr');
+  });
+
   it('detects Turkish from English prompt', () => {
     const result = resolveOutputLanguage('Write in Turkish about Istanbul');
     expect(result).toEqual({ language: 'Turkish', code: 'tr', explicit: true });
   });
 
+  it('does not treat Turkey topic as Turkish output language', () => {
+    expect(resolveOutputLanguage('متن درباره ترکیه').code).not.toBe('tr');
+    expect(resolveOutputLanguage('Write in English about Turkish culture')).toEqual({
+      language: 'English',
+      code: 'en',
+      explicit: true,
+    });
+  });
+
   it('defaults to English when no language is named', () => {
     const result = resolveOutputLanguage('Daily conversation about coffee');
     expect(result).toEqual({ language: 'English', code: 'en', explicit: false });
+  });
+
+  it('buildAiGenerateMessages includes CEFR guidance when provided', () => {
+    const outputLanguage = { language: 'German', code: 'de', explicit: true };
+    const length = resolveAiSentenceLength(0.35);
+    const messages = buildAiGenerateMessages({
+      trimmedPrompt: 'Travel',
+      difficultyLabel: 'CEFR B2',
+      cefrLevel: 'B2',
+      cefrGuidance: 'Allow more complex sentences.',
+      toneLabel: 'neutral',
+      voice: 'female',
+      sentenceTarget: AI_GENERATE_SENTENCE_COUNT,
+      wordsMin: length.wordsMin,
+      wordsMax: length.wordsMax,
+      styleHint: length.styleHint,
+      outputLanguage,
+    });
+
+    expect(messages[1].content).toContain('CEFR level: B2');
+    expect(messages[1].content).toContain('language-agnostic');
+    expect(messages[1].content).toContain('Allow more complex sentences.');
+    expect(messages[1].content).not.toContain('Difficulty: beginner');
   });
 
   it('buildAiGenerateMessages enforces non-English language block', () => {
@@ -106,15 +143,17 @@ describe('resolveOutputLanguage', () => {
       wordsMax: length.wordsMax,
       styleHint: length.styleHint,
       outputLanguage,
-      practiceWords: ['airport', 'ticket'],
+      practiceWordDetails: [
+        { word: 'airport', displayWord: 'airport', partOfSpeech: 'noun', usedCount: 0, targetUses: 3 },
+        { word: 'ticket', displayWord: 'ticket', partOfSpeech: 'noun', usedCount: 1, targetUses: 3 },
+      ],
     });
 
     expect(messages[1].content).toContain('airport');
     expect(messages[1].content).toContain('ticket');
-    expect(messages[1].content).toContain('Vocabulary practice');
-    expect(messages[1].content).toContain('at least 3 distinct sentences');
-    expect(messages[1].content).toContain('4–6 times');
-    expect(messages[1].content).toContain('10% extra length');
+    expect(messages[1].content).toContain('Practice words for this text');
+    expect(messages[1].content).toContain('target progress 0/3');
+    expect(messages[1].content).toContain('target progress 1/3');
     expect(messages[1].content).toContain('exactly 22 sentences');
   });
 
@@ -142,7 +181,9 @@ describe('resolveOutputLanguage', () => {
 
   it('buildAiPracticePromptBlock boosts length by up to 10%', () => {
     const boosted = buildAiPracticePromptBlock({
-      practiceWords: ['run'],
+      practiceWordDetails: [
+        { word: 'run', displayWord: 'run', partOfSpeech: 'verb', usedCount: 0, targetUses: 3 },
+      ],
       sentenceTarget: 20,
       wordsMin: 10,
       wordsMax: 20,
@@ -150,5 +191,6 @@ describe('resolveOutputLanguage', () => {
     expect(boosted.sentenceTarget).toBe(22);
     expect(boosted.wordsMax).toBe(Math.round(20 * (1 + AI_PRACTICE_LENGTH_BOOST_RATIO)));
     expect(boosted.practiceBlock).toContain('run');
+    expect(boosted.practiceBlock).toContain('Practice words for this text');
   });
 });

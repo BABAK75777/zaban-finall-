@@ -42,13 +42,13 @@ describe('tablet startup layout', () => {
 });
 
 describe('android release metadata', () => {
-  it('uses versionCode 132 with versionName 1.3.2', () => {
+  it('uses versionCode 136 with versionName 1.3.3', () => {
     const gradle = fs.readFileSync(
       path.join(__dirname, '..', 'android', 'app', 'build.gradle'),
       'utf8'
     );
-    expect(gradle).toMatch(/versionCode\s+132/);
-    expect(gradle).toMatch(/versionName\s+"1\.3\.2"/);
+    expect(gradle).toMatch(/versionCode\s+136/);
+    expect(gradle).toMatch(/versionName\s+"1\.3\.3"/);
   });
 
   it('targets compileSdk and targetSdk 36', () => {

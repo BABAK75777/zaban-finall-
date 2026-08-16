@@ -1,0 +1,23 @@
+# Keep Cloud Build upload small — backend image only needs backend/ + two workspace packages.
+.git/
+.gitignore
+.github/
+apps/
+node_modules/
+**/node_modules/
+**/.expo*/
+**/.expo-*/
+**/android/
+**/ios/
+backend/node_modules/
+backend/tests/
+backend/cache/
+backend/tools/
+backend/*.md
+packages/tts-core/
+packages/tts-mobile/
+*.md
+coverage/
+**/*.test.js
+**/*.test.ts
+**/__tests__/

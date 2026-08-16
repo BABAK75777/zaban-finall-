@@ -6,26 +6,23 @@ import { getTheme } from '../src/theme/themes';
 
 const theme = getTheme('dark');
 
-const sampleEntries: DictionaryEntry[] = [
-  {
-    word: 'hello',
-    displayWord: 'hello',
-    meaning: 'سلام',
-    targetLanguage: 'fa',
+function entry(
+  word: string,
+  practiceLanguage: 'tr-TR' | 'en-US',
+  overrides: Partial<DictionaryEntry> = {}
+): DictionaryEntry {
+  return {
+    word,
+    displayWord: word,
+    meaning: 'meaning',
+    practiceLanguage,
+    targetLanguage: practiceLanguage,
     savedAt: Date.now(),
     lookupCount: 1,
     textAppearanceCount: 0,
-  },
-  {
-    word: 'world',
-    displayWord: 'world',
-    meaning: 'دنیا',
-    targetLanguage: 'fa',
-    savedAt: Date.now(),
-    lookupCount: 0,
-    textAppearanceCount: 0,
-  },
-];
+    ...overrides,
+  };
+}
 
 describe('SavedWordsList', () => {
   it('does not show a meaning input when adding words', () => {
@@ -33,7 +30,7 @@ describe('SavedWordsList', () => {
       <SavedWordsList
         theme={theme}
         entries={[]}
-        targetLanguage="fa"
+        practiceLanguage="tr-TR"
         onEntriesChange={() => {}}
       />
     );
@@ -47,36 +44,84 @@ describe('SavedWordsList', () => {
     const { getByTestId, queryByText } = render(
       <SavedWordsList
         theme={theme}
-        entries={sampleEntries}
-        targetLanguage="fa"
+        entries={[entry('kitap', 'tr-TR', { meaning: 'book' })]}
+        practiceLanguage="tr-TR"
         onEntriesChange={() => {}}
       />
     );
 
-    expect(getByTestId(SAVED_WORDS_LIST_TEST_IDS.item('hello'))).toBeTruthy();
-    expect(getByTestId(SAVED_WORDS_LIST_TEST_IDS.list)).toBeTruthy();
-    expect(queryByText('سلام')).toBeNull();
-    expect(queryByText('دنیا')).toBeNull();
+    expect(getByTestId(SAVED_WORDS_LIST_TEST_IDS.item('kitap'))).toBeTruthy();
+    expect(queryByText('book')).toBeNull();
   });
 
-  it('adds a word without requiring a meaning', () => {
+  it('shows only Turkish words when practiceLanguage is tr-TR', () => {
+    const mixed = [entry('kitap', 'tr-TR'), entry('book', 'en-US')];
+    const { getByTestId, queryByTestId } = render(
+      <SavedWordsList
+        theme={theme}
+        entries={mixed}
+        practiceLanguage="tr-TR"
+        onEntriesChange={() => {}}
+      />
+    );
+
+    expect(getByTestId(SAVED_WORDS_LIST_TEST_IDS.item('kitap'))).toBeTruthy();
+    expect(queryByTestId(SAVED_WORDS_LIST_TEST_IDS.item('book'))).toBeNull();
+  });
+
+  it('shows only English words when practiceLanguage is en-US', () => {
+    const mixed = [entry('kitap', 'tr-TR'), entry('book', 'en-US')];
+    const { getByTestId, queryByTestId } = render(
+      <SavedWordsList
+        theme={theme}
+        entries={mixed}
+        practiceLanguage="en-US"
+        onEntriesChange={() => {}}
+      />
+    );
+
+    expect(getByTestId(SAVED_WORDS_LIST_TEST_IDS.item('book'))).toBeTruthy();
+    expect(queryByTestId(SAVED_WORDS_LIST_TEST_IDS.item('kitap'))).toBeNull();
+  });
+
+  it('adds a word with current practice language ownership', () => {
     const onEntriesChange = jest.fn();
     const { getByTestId } = render(
       <SavedWordsList
         theme={theme}
         entries={[]}
-        targetLanguage="fa"
+        practiceLanguage="tr-TR"
         onEntriesChange={onEntriesChange}
       />
     );
 
-    fireEvent.changeText(getByTestId(SAVED_WORDS_LIST_TEST_IDS.wordInput), 'run');
+    fireEvent.changeText(getByTestId(SAVED_WORDS_LIST_TEST_IDS.wordInput), 'merhaba');
     fireEvent.press(getByTestId(SAVED_WORDS_LIST_TEST_IDS.addBtn));
 
     expect(onEntriesChange).toHaveBeenCalledTimes(1);
     const next = onEntriesChange.mock.calls[0][0] as DictionaryEntry[];
     expect(next).toHaveLength(1);
-    expect(next[0].displayWord).toBe('run');
-    expect(next[0].meaning).toBe('');
+    expect(next[0].displayWord).toBe('merhaba');
+    expect(next[0].practiceLanguage).toBe('tr-TR');
+  });
+
+  it('deletes only the matching practice-language record', () => {
+    const onEntriesChange = jest.fn();
+    const mixed = [entry('no', 'tr-TR'), entry('no', 'en-US')];
+    const { getByTestId } = render(
+      <SavedWordsList
+        theme={theme}
+        entries={mixed}
+        practiceLanguage="tr-TR"
+        onEntriesChange={onEntriesChange}
+      />
+    );
+
+    fireEvent.press(getByTestId(SAVED_WORDS_LIST_TEST_IDS.delete('no')));
+
+    expect(onEntriesChange).toHaveBeenCalledTimes(1);
+    const next = onEntriesChange.mock.calls[0][0] as DictionaryEntry[];
+    expect(next).toHaveLength(1);
+    expect(next[0].practiceLanguage).toBe('en-US');
   });
 });

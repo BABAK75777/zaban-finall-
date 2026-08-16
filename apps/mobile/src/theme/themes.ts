@@ -51,7 +51,7 @@ const darkTheme: ThemePalette = {
   surface: D.backgroundSecondary,
   tertiary: D.backgroundTertiary,
   surfaceElevated: D.backgroundTertiary,
-  card: 'rgba(44, 44, 46, 0.88)',
+  card: 'rgba(42, 51, 68, 0.88)',
   cardOpacity: 0.65,
   text: D.textPrimary,
   textMuted: D.textSecondary,
@@ -71,6 +71,7 @@ const darkTheme: ThemePalette = {
   inputText: D.textPrimary,
   inputPlaceholder: D.textMuted,
   inputBorder: D.buttonBorder,
+  adSlotBackground: D.backgroundPrimary,
   statusBar: 'light',
   atmosphere: {
     gradientTop: D.backgroundPrimary,
@@ -78,7 +79,7 @@ const darkTheme: ThemePalette = {
     gradientBottom: D.backgroundTertiary,
   },
   glass: {
-    bg: 'rgba(28, 28, 30, 0.82)',
+    bg: 'rgba(21, 27, 40, 0.82)',
     border: D.buttonBorder,
     highlight: 'rgba(255, 255, 255, 0.05)',
     shadow: D.glowSoft,
@@ -148,6 +149,7 @@ const lightTheme: ThemePalette = {
   inputText: '#141820',
   inputPlaceholder: 'rgba(20, 24, 32, 0.42)',
   inputBorder: 'rgba(20, 24, 32, 0.12)',
+  adSlotBackground: '#FFFFFF',
   statusBar: 'dark',
   atmosphere: {
     gradientTop: '#FFFFFF',
@@ -224,6 +226,7 @@ const creamTheme: ThemePalette = {
   inputText: '#3A3024',
   inputPlaceholder: 'rgba(58, 48, 36, 0.46)',
   inputBorder: 'rgba(58, 48, 36, 0.16)',
+  adSlotBackground: '#DFD2B4',
   statusBar: 'dark',
   atmosphere: {
     gradientTop: '#DFD2B4',
@@ -236,14 +239,14 @@ const creamTheme: ThemePalette = {
     shadow: 'rgba(58, 48, 36, 0.08)',
   },
   waveform: {
-    active: '#A898B0',
+    active: '#7A8494',
     inactive: 'rgba(82, 68, 58, 0.18)',
-    glow: 'rgba(82, 68, 58, 0.08)',
+    glow: 'rgba(58, 64, 74, 0.1)',
   },
   buttons: {
-    micBg: '#A898C0',
-    micBorder: 'rgba(74, 58, 92, 0.2)',
-    micGlow: 'rgba(74, 58, 92, 0.1)',
+    micBg: '#8A94A4',
+    micBorder: 'rgba(58, 64, 74, 0.22)',
+    micGlow: 'rgba(58, 64, 74, 0.1)',
     micText: '#9A7340',
     replayBg: '#EDE3C8',
     replayBorder: 'rgba(58, 48, 36, 0.12)',
@@ -264,8 +267,8 @@ const creamTheme: ThemePalette = {
     border: 'rgba(58, 48, 36, 0.14)',
   },
   selection: {
-    bg: '#9488B0',
-    border: 'rgba(74, 58, 92, 0.2)',
+    bg: '#5E6878',
+    border: 'rgba(58, 64, 74, 0.25)',
     text: '#FFFFFF',
   },
   fontFamilySentence: sentenceFont,

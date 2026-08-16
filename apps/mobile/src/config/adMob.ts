@@ -21,7 +21,7 @@ export const PRODUCTION_BANNER_AD_UNIT_ID = production.androidBannerUnitId;
 export const ADMOB_TEST_ANDROID_APP_ID = 'ca-app-pub-3940256099942544~3347511713';
 export const ADMOB_TEST_IOS_APP_ID = 'ca-app-pub-3940256099942544~1458002511';
 
-/** Google sample banner units — always used unless production ads are explicitly enabled. */
+/** Google sample banner units — used only when test ads are explicitly requested. */
 export const ADMOB_TEST_ANDROID_BANNER_UNIT_ID = testUnits.androidBannerUnitId;
 export const ADMOB_TEST_IOS_BANNER_UNIT_ID = testUnits.iosBannerUnitId;
 
@@ -36,9 +36,13 @@ function readExpoEnv(key: string): string | undefined {
 }
 
 /**
- * Production banner unit IDs (store / EAS production profile only):
- *   EXPO_PUBLIC_ADMOB_USE_PRODUCTION_IDS=1
+ * Production banner unit IDs:
  *   EXPO_PUBLIC_ADMOB_ANDROID_BANNER_UNIT_ID=ca-app-pub-XXXX/YYYY  (optional override)
+ *   EXPO_PUBLIC_ADMOB_IOS_BANNER_UNIT_ID=ca-app-pub-XXXX/YYYY
+ *
+ * Force Google sample "Test Ad" creatives (shows Test Ad / Test mode badge):
+ *   EXPO_PUBLIC_USE_TEST_ADS=true
+ *   EXPO_PUBLIC_ADMOB_USE_TEST_IDS=1
  *
  * Production App IDs (native config — rebuild required after change):
  *   EXPO_PUBLIC_ADMOB_ANDROID_APP_ID=ca-app-pub-XXXX~YYYY
@@ -91,13 +95,16 @@ export function resolveAdMobAppIds(): { androidAppId: string; iosAppId: string }
   };
 }
 
-export function shouldUseTestBannerAds(options: AdMobRuntimeOptions = {}): boolean {
-  const isDev = options.dev ?? __DEV__;
-  if (isDev) return true;
+/**
+ * Google sample test units always paint a "Test Ad" / "Test mode" badge into the
+ * creative — that badge cannot be stripped in app UI. Only use those units when
+ * explicitly requested; otherwise use production units so the ad shows without
+ * the watermark (including debug installs).
+ */
+export function shouldUseTestBannerAds(_options: AdMobRuntimeOptions = {}): boolean {
   if (readExpoEnv('EXPO_PUBLIC_ADMOB_USE_TEST_IDS') === '1') return true;
   if (readExpoEnv('EXPO_PUBLIC_USE_TEST_ADS') === 'true') return true;
   if (readExpoEnv('EXPO_PUBLIC_VALIDATION_BUILD') === '1') return true;
-  // Release APK ships with production App ID in native config — use production banner by default.
   return false;
 }
 
@@ -106,8 +113,8 @@ export function getBannerAdUnitMode(options: AdMobRuntimeOptions = {}): 'test' |
 }
 
 /**
- * Banner ad unit selection — test ads in dev/debug and when EXPO_PUBLIC_USE_TEST_ADS=true.
- * Production ID only when release build explicitly enables production ads.
+ * Banner ad unit selection — production Mamlio units by default (no Test Ad badge).
+ * Google sample test units only when EXPO_PUBLIC_USE_TEST_ADS / USE_TEST_IDS / validation.
  */
 export function getBannerAdUnitId(options: AdMobRuntimeOptions = {}): string {
   const platform = options.platform ?? Platform.OS;
@@ -143,7 +150,7 @@ export function resolveBannerAdUnitId(options: AdMobRuntimeOptions = {}): string
  * Global ad visibility gate (app config / premium / validation builds).
  * Consent is handled separately in adsConsent + AdBanner.
  */
-export function areAdsEnabled(): boolean {
+export function areAdsEnabled(_options: AdMobRuntimeOptions = {}): boolean {
   if (readExpoEnv('EXPO_PUBLIC_VALIDATION_BUILD') === '1') {
     return false;
   }

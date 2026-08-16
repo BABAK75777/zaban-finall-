@@ -18,10 +18,31 @@
     "test:mobile-render": "npm test --prefix apps/mobile"
   },
   "devDependencies": {
+    "@expo/metro-config": "~55.0.25",
+    "@react-native/babel-preset": "0.83.10",
+    "@react-native/js-polyfills": "0.83.10",
     "@types/react": "^19.2.17",
     "@vitejs/plugin-react": "^6.0.2",
     "concurrently": "^8.2.2",
+    "hermes-parser": "0.32.0",
     "jsdom": "^29.1.1",
+    "metro": "0.83.3",
+    "metro-babel-transformer": "0.83.3",
+    "metro-cache": "0.83.3",
+    "metro-cache-key": "0.83.3",
+    "metro-config": "0.83.3",
+    "metro-core": "0.83.3",
+    "metro-file-map": "0.83.3",
+    "metro-minify-terser": "0.83.3",
+    "metro-resolver": "0.83.3",
+    "metro-runtime": "0.83.3",
+    "metro-source-map": "0.83.3",
+    "metro-symbolicate": "0.83.3",
+    "metro-transform-plugins": "0.83.3",
+    "metro-transform-worker": "0.83.3",
     "vitest": "^1.2.0"
+  },
+  "dependencies": {
+    "@expo/config-plugins": "~55.0.11"
   }
 }

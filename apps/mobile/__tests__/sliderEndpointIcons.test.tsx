@@ -59,7 +59,7 @@ describe('SliderEndpointRow icon endpoints', () => {
         preset="aiSpeed"
         value={1.0}
         min={0.5}
-        max={1.5}
+        max={1.2}
         mutedColor={MUTED}
         accentColor={ACCENT}
         inline

@@ -3,7 +3,7 @@ import Constants from 'expo-constants';
 import { BRANDING } from './branding';
 
 /** Fallback when bundled version metadata is unavailable (tests). */
-export const APP_VERSION_FALLBACK = '1.3.2';
+export const APP_VERSION_FALLBACK = '1.3.3';
 
 /** Release version from package.json — synced with app.json and android versionName. */
 // eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -3,6 +3,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { normalizeAiPlaybackSpeed } from './aiPlaybackSpeed';
 
 export const READING_SESSION_KEY = '@zaban/reading_session_v1';
 const LEGACY_PROGRESS_V2_KEY = '@zaban/reading_progress_v2';
@@ -104,10 +105,7 @@ function parseSession(raw: string): ReadingSessionV1 | null {
       typeof data.sentenceId === 'string' && data.sentenceId.length > 0
         ? data.sentenceId
         : null;
-    const aiSpeed =
-      typeof data.aiSpeed === 'number' && data.aiSpeed > 0 && Number.isFinite(data.aiSpeed)
-        ? data.aiSpeed
-        : 1.0;
+    const aiSpeed = normalizeAiPlaybackSpeed(data.aiSpeed);
     const ttsVoiceType =
       data.ttsVoiceType === 'male' || data.ttsVoiceType === 'female'
         ? data.ttsVoiceType
@@ -215,7 +213,7 @@ export async function saveReadingSession(session: ReadingSessionV1): Promise<voi
     readUnit: session.readUnit,
     sentenceIndex: Math.max(0, Math.floor(session.sentenceIndex)),
     sentenceId: session.sentenceId,
-    aiSpeed: session.aiSpeed > 0 ? session.aiSpeed : 1.0,
+    aiSpeed: normalizeAiPlaybackSpeed(session.aiSpeed),
     ttsVoiceType:
       session.ttsVoiceType === 'male' || session.ttsVoiceType === 'female'
         ? session.ttsVoiceType

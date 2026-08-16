@@ -43,8 +43,16 @@ function ReadingWaveform({
   ).current;
 
   React.useEffect(() => {
-    const animations = bars.slice(0, barCount).map((bar, i) => {
-      const peak = active ? 0.72 + (i % 6) * 0.08 : 0.34 + (i % 5) * 0.05;
+    const visibleBars = bars.slice(0, barCount);
+    if (!active) {
+      visibleBars.forEach((bar, i) => {
+        bar.stopAnimation();
+        bar.setValue(0.34 + (i % 5) * 0.05);
+      });
+      return;
+    }
+    const animations = visibleBars.map((bar, i) => {
+      const peak = 0.72 + (i % 6) * 0.08;
       return Animated.loop(
         Animated.sequence([
           Animated.timing(bar, {
@@ -156,7 +164,8 @@ export function TappableHeroSentence({
             key={`w-${index}-${token.lookup}`}
             onPress={openLookup}
             onLongPress={openLookup}
-            delayLongPress={280}
+            // RN 0.83 TextProps types omit delayLongPress; runtime Text still honors it.
+            {...({ delayLongPress: 280 } as object)}
             suppressHighlighting
             accessibilityRole="button"
             accessibilityLabel={`Look up ${token.display}`}

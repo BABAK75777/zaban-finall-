@@ -58,9 +58,9 @@ describe('dictionary storage', () => {
     expect(recordWordInReadingText(once, text, hashReadingText(text))).toBe(once);
   });
 
-  it('exports practice words for AI with under-practiced first', () => {
-    const practiced = { ...entry('done'), textAppearanceCount: 3 };
-    const needs = { ...entry('needs'), textAppearanceCount: 1 };
+  it('exports practice words for AI with due words first', () => {
+    const practiced = { ...entry('done'), usedCount: 2, targetUses: 3 };
+    const needs = { ...entry('needs'), usedCount: 0, targetUses: 3 };
     expect(getPracticeWordsForAi([practiced, needs])).toEqual(['needs', 'done']);
   });
 

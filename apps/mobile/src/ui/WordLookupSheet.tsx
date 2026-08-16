@@ -7,9 +7,11 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { glassStyle } from '../theme/glass';
 import type { ThemePalette } from '../theme/themeTypes';
 import { dictionaryLanguageLabel, type DictionaryLanguageCode } from '../dictionary';
+import { MAX_CONTENT_WIDTH } from './responsiveLayout';
 import { space } from './spacing';
 
 export const WORD_LOOKUP_TEST_IDS = {
@@ -29,7 +31,9 @@ interface WordLookupSheetProps {
   loading: boolean;
   error: string | null;
   savedToDictionary: boolean;
-  textAppearanceCount: number;
+  practiceUsedCount: number;
+  practiceTargetUses: number;
+  practiceStarred: boolean;
   lookupCount: number;
   canToggleSave: boolean;
   onClose: () => void;
@@ -46,19 +50,41 @@ export function WordLookupSheet({
   loading,
   error,
   savedToDictionary,
-  textAppearanceCount,
+  practiceUsedCount,
+  practiceTargetUses,
+  practiceStarred,
   lookupCount,
   canToggleSave,
   onClose,
   onToggleSave,
 }: WordLookupSheetProps) {
   const colors = theme;
+  const insets = useSafeAreaInsets();
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
+      <Pressable
+        style={[
+          styles.backdrop,
+          {
+            paddingTop: space.md,
+            paddingHorizontal: space.md,
+            paddingBottom: Math.max(space.md, insets.bottom + space.sm),
+          },
+        ]}
+        onPress={onClose}
+      >
         <Pressable
-          style={[styles.panel, glassStyle(theme), { borderColor: colors.border }]}
+          style={[
+            styles.panel,
+            glassStyle(theme),
+            {
+              borderColor: colors.border,
+              maxWidth: MAX_CONTENT_WIDTH,
+              width: '100%',
+              alignSelf: 'center',
+            },
+          ]}
           onPress={(e) => e.stopPropagation()}
           testID={WORD_LOOKUP_TEST_IDS.sheet}
         >
@@ -132,13 +158,10 @@ export function WordLookupSheet({
             </Text>
           ) : null}
 
-          {textAppearanceCount >= 3 ? (
+          {savedToDictionary ? (
             <Text style={[styles.meta, { color: colors.accent }]}>
-              Practiced in {textAppearanceCount} texts — well done!
-            </Text>
-          ) : textAppearanceCount > 1 ? (
-            <Text style={[styles.meta, { color: colors.accent }]}>
-              Seen in {textAppearanceCount} of 3 practice texts
+              {practiceStarred ? '★ ' : ''}
+              Practice progress: {practiceUsedCount}/{practiceTargetUses}
             </Text>
           ) : null}
         </Pressable>
@@ -152,7 +175,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'flex-end',
-    padding: space.md,
   },
   panel: {
     borderRadius: 16,
@@ -175,6 +197,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
     flex: 1,
+    flexShrink: 1,
   },
   starBtn: {
     padding: 4,

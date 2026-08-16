@@ -1,9 +1,9 @@
 {
   "expo": {
     "name": "Mamlio",
-    "slug": "mamlio",
+    "slug": "zaban-tts",
     "scheme": "mamlio",
-    "version": "1.3.2",
+    "version": "1.3.3",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
@@ -20,14 +20,16 @@
       "bundleIdentifier": "com.babakworks.mamlio",
       "infoPlist": {
         "UIBackgroundModes": [
+          "audio",
           "audio"
         ],
-        "NSMicrophoneUsageDescription": "Allow Mamlio to record your voice for speaking and playback practice."
+        "NSMicrophoneUsageDescription": "Allow Mamlio to record your voice for speaking and playback practice.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.babakworks.mamlio",
-      "versionCode": 132,
+      "versionCode": 136,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.RECORD_AUDIO",
@@ -63,6 +65,14 @@
     "plugins": [
       "expo-router",
       "expo-asset",
+      "expo-font",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Mamlio to record your voice for speaking and playback practice.",
+          "recordAudioAndroid": true
+        }
+      ],
       [
         "expo-build-properties",
         {
@@ -70,7 +80,7 @@
             "compileSdkVersion": 36,
             "targetSdkVersion": 36,
             "buildToolsVersion": "36.0.0",
-            "minSdkVersion": 23
+            "minSdkVersion": 24
           }
         }
       ],

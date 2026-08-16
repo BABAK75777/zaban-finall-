@@ -5,19 +5,18 @@ WORKDIR /app
 # Install build dependencies for native modules (bcrypt, etc.)
 RUN apk add --no-cache python3 make g++
 
-# Copy package files
-COPY package*.json ./
+# Workspace packages referenced by backend/package.json file: deps
+COPY packages/dictionary-languages ./packages/dictionary-languages
+COPY packages/ai-prompt-validation ./packages/ai-prompt-validation
 
-# Install production dependencies only
+COPY backend/package*.json ./backend/
+WORKDIR /app/backend
 RUN npm ci --omit=dev
 
-# Copy source code
-COPY . .
+COPY backend/ ./
 
 # Cloud Run expects PORT env
 ENV PORT=8080
 EXPOSE 8080
 
-# Start the server
 CMD ["node", "server.js"]
-

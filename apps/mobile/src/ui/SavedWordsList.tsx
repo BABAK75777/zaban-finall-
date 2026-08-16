@@ -8,6 +8,10 @@ import {
   removeDictionaryEntry,
 } from '../dictionary/dictionaryStorage';
 import {
+  entryMatchesPracticeLanguage,
+  resolveEntryPracticeLanguage,
+} from '../dictionary/entryPracticeLanguage';
+import {
   formatPracticeProgress,
   migrateDictionaryEntry,
 } from '../dictionary/practiceQueue';
@@ -24,7 +28,7 @@ export const SAVED_WORDS_LIST_TEST_IDS = {
 type Props = {
   theme: ThemePalette;
   entries: DictionaryEntry[];
-  targetLanguage: DictionaryLanguageCode;
+  practiceLanguage: DictionaryLanguageCode;
   onEntriesChange: (entries: DictionaryEntry[]) => void;
 };
 
@@ -39,18 +43,15 @@ function formatSavedDate(timestamp: number): string {
   }
 }
 
-export function SavedWordsList({ theme, entries, targetLanguage, onEntriesChange }: Props) {
+export function SavedWordsList({ theme, entries, practiceLanguage, onEntriesChange }: Props) {
   const colors = theme;
   const [wordInput, setWordInput] = useState('');
 
   const visibleEntries = useMemo(() => {
-    return [...entries].sort((a, b) => {
-      const aCurrent = a.targetLanguage === targetLanguage ? 0 : 1;
-      const bCurrent = b.targetLanguage === targetLanguage ? 0 : 1;
-      if (aCurrent !== bCurrent) return aCurrent - bCurrent;
-      return (b.savedAt ?? 0) - (a.savedAt ?? 0);
-    });
-  }, [entries, targetLanguage]);
+    return entries
+      .filter((entry) => entryMatchesPracticeLanguage(entry, practiceLanguage))
+      .sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0));
+  }, [entries, practiceLanguage]);
 
   const handleAdd = useCallback(() => {
     const word = wordInput.trim();
@@ -61,15 +62,17 @@ export function SavedWordsList({ theme, entries, targetLanguage, onEntriesChange
 
     const next = addManualDictionaryEntry(entries, {
       displayWord: word,
-      targetLanguage,
+      practiceLanguage,
     });
     onEntriesChange(next);
     setWordInput('');
-  }, [entries, onEntriesChange, targetLanguage, wordInput]);
+  }, [entries, onEntriesChange, practiceLanguage, wordInput]);
 
   const handleDelete = useCallback(
     (entry: DictionaryEntry) => {
-      const next = removeDictionaryEntry(entries, entry.word, entry.targetLanguage);
+      const ownership = resolveEntryPracticeLanguage(entry);
+      if (!ownership) return;
+      const next = removeDictionaryEntry(entries, entry.word, ownership);
       onEntriesChange(next);
     },
     [entries, onEntriesChange]
@@ -129,9 +132,10 @@ export function SavedWordsList({ theme, entries, targetLanguage, onEntriesChange
         >
           {visibleEntries.map((entry) => {
             const progress = migrateDictionaryEntry(entry);
+            const ownership = resolveEntryPracticeLanguage(entry) ?? practiceLanguage;
             return (
             <View
-              key={`${entry.word}-${entry.targetLanguage}`}
+              key={`${ownership}:${entry.word}`}
               style={[styles.item, { borderColor: colors.border, backgroundColor: colors.surface }]}
               testID={SAVED_WORDS_LIST_TEST_IDS.item(entry.word)}
             >
@@ -140,7 +144,7 @@ export function SavedWordsList({ theme, entries, targetLanguage, onEntriesChange
                   {formatPracticeProgress(entry)}
                 </Text>
                 <Text style={[styles.itemMeta, { color: colors.textDim }]}>
-                  {dictionaryLanguageLabel(entry.targetLanguage)}
+                  {dictionaryLanguageLabel(ownership)}
                   {entry.savedAt ? ` · ${formatSavedDate(entry.savedAt)}` : ''}
                   {progress.usedCount >= progress.targetUses ? ' · completed' : ''}
                 </Text>

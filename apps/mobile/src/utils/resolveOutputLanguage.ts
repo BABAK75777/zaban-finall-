@@ -6,6 +6,14 @@ export interface ResolvedLanguage {
 
 const LANGUAGE_RULES: { language: string; code: string; patterns: RegExp[] }[] = [
   {
+    language: 'English',
+    code: 'en',
+    patterns: [
+      /\b(english|in english)\b/i,
+      /(?:به\s+)?(?:زبان\s+)?(?:انگلیسی|انگلیس)(?![\u0600-\u06FF])/,
+    ],
+  },
+  {
     language: 'German',
     code: 'de',
     patterns: [
@@ -27,8 +35,11 @@ const LANGUAGE_RULES: { language: string; code: string; patterns: RegExp[] }[] =
     language: 'Turkish',
     code: 'tr',
     patterns: [
-      /\b(turkish|t[uü]rk[cç]e|turkce)\b/i,
-      /(?:به\s+)?(?:زبان\s+)?(?:ترکی|ترک|ترکیه|ترك)/,
+      /\b(?:in|write|practice|learn|speak)\s+turkish\b/i,
+      /\bturkish\s+(?:text|story|passage|practice|reading)\b/i,
+      /\b(t[uü]rk[cç]e|turkce)\b/i,
+      /(?:به\s+)(?:زبان\s+)?(?:ترکی|ترک)(?:\s|$|[،.!?])/,
+      /(?:زبان\s+)(?:ترکی|ترک)(?:\s|$|[،.!?])/,
       /\b(torki|turki|be\s+torki)\b/i,
     ],
   },
@@ -81,6 +92,16 @@ const LANGUAGE_RULES: { language: string; code: string; patterns: RegExp[] }[] =
     ],
   },
   {
+    language: 'Hindi',
+    code: 'hi',
+    patterns: [/\b(hindi)\b/i, /(?:به\s+)?(?:زبان\s+)?(?:هندی|هند)/],
+  },
+  {
+    language: 'Urdu',
+    code: 'ur',
+    patterns: [/\b(urdu)\b/i, /(?:به\s+)?(?:زبان\s+)?(?:اردو)/],
+  },
+  {
     language: 'Japanese',
     code: 'ja',
     patterns: [
@@ -102,14 +123,6 @@ const LANGUAGE_RULES: { language: string; code: string; patterns: RegExp[] }[] =
     patterns: [
       /\b(korean|한국어)\b/i,
       /(?:به\s+)?(?:زبان\s+)?(?:کره‌ای|کره)/,
-    ],
-  },
-  {
-    language: 'English',
-    code: 'en',
-    patterns: [
-      /\b(english|in english)\b/i,
-      /(?:به\s+)?(?:زبان\s+)?(?:انگلیسی|انگلیس)/,
     ],
   },
 ];

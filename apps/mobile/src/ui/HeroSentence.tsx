@@ -39,8 +39,16 @@ function ReadingWaveform({
   ).current;
 
   useEffect(() => {
-    const animations = bars.slice(0, barCount).map((bar, i) => {
-      const peak = active ? 0.72 + (i % 6) * 0.08 : 0.34 + (i % 5) * 0.05;
+    const visibleBars = bars.slice(0, barCount);
+    if (!active) {
+      visibleBars.forEach((bar, i) => {
+        bar.stopAnimation();
+        bar.setValue(0.34 + (i % 5) * 0.05);
+      });
+      return;
+    }
+    const animations = visibleBars.map((bar, i) => {
+      const peak = 0.72 + (i % 6) * 0.08;
       return Animated.loop(
         Animated.sequence([
           Animated.timing(bar, {

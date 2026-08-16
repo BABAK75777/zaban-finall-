@@ -58,7 +58,7 @@ export function DictionarySettingsSection({
       <SavedWordsList
         theme={theme}
         entries={entries}
-        targetLanguage={settings.translationLanguage}
+        practiceLanguage={settings.practiceLanguage}
         onEntriesChange={onEntriesChange}
       />
     </View>

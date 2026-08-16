@@ -22,10 +22,10 @@ describe('resolvePracticeOutputLanguage', () => {
     });
   });
 
-  it('honors UK English selection', () => {
+  it('coerces unavailable UK English selection to active default', () => {
     expect(resolvePracticeOutputLanguage('coffee chat', 'en-GB')).toEqual({
-      language: 'English — United Kingdom',
-      code: 'en-GB',
+      language: 'English — United States',
+      code: 'en-US',
       explicit: true,
     });
   });

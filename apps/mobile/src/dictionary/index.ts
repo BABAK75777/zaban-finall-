@@ -71,7 +71,35 @@ export {
   updateDictionarySettings,
   upsertDictionaryEntry,
 } from './dictionaryStorage';
+export {
+  entryMatchesPracticeLanguage,
+  migrateEntryPracticeLanguage,
+  normalizePracticeLanguageId,
+  resolveEntryPracticeLanguage,
+} from './entryPracticeLanguage';
 export { requestWordLookup } from './dictionaryApi';
+export {
+  getVisiblePracticeLanguages,
+  getVisibleDictionaryLanguages,
+  isPracticeLanguageProductActive,
+  isDictionaryLanguageProductActive,
+  ensureProcessablePracticeLanguage,
+  ensureProcessableDictionaryLanguage,
+  assertPracticeLanguageProcessable,
+  IN_PROGRESS_DIALOG_TITLE,
+  IN_PROGRESS_DIALOG_MESSAGE,
+  IN_PROGRESS_DIALOG_BUTTON,
+  IN_PROGRESS_BADGE_LABEL,
+  LANGUAGE_REQUEST_CTA_LABEL,
+  MAMLIO_WEBSITE_URL,
+  practiceLanguageDisplayLabel,
+  dictionaryLanguageDisplayLabel,
+} from './languageAvailability';
+export type {
+  LanguageProductStatus,
+  VisibleLanguageOption,
+  PracticeLanguageGuardResult,
+} from './languageAvailability';
 export {
   countWordInText,
   countSentencesWithWord,

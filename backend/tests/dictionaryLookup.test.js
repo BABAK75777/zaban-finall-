@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildDictionaryLookupMessages,
+  dictionaryPromptMentionsPersianOutput,
   isDictionaryLanguageCode,
+  isPrimarilyPersianScript,
   parseDictionaryLookupResponse,
 } from '../utils/dictionaryLookup.js';
 
@@ -20,7 +22,28 @@ describe('dictionaryLookup', () => {
       targetLanguage: 'fa',
     });
     expect(messages[1].content).toContain('hello');
-    expect(messages[1].content).toContain('Persian');
+    expect(messages[1].content).toContain('fa');
+  });
+
+  it('requires English output for English target', () => {
+    const messages = buildDictionaryLookupMessages({
+      word: 'hello',
+      targetLanguage: 'en',
+      targetLanguageName: 'English',
+    });
+    expect(messages[1].content).toContain('English');
+    expect(messages[1].content).toContain('Do NOT use Persian or Farsi');
+    expect(dictionaryPromptMentionsPersianOutput(messages[1].content, 'en')).toBe(false);
+  });
+
+  it('builds Russian lookup without Persian fallback wording', () => {
+    const messages = buildDictionaryLookupMessages({
+      word: 'hello',
+      targetLanguage: 'ru',
+      targetLanguageName: 'Russian',
+    });
+    expect(messages[1].content).toContain('Russian');
+    expect(messages[1].content).toContain('Do NOT use Persian or Farsi');
   });
 
   it('parses JSON lookup responses', () => {
@@ -29,5 +52,10 @@ describe('dictionaryLookup', () => {
     );
     expect(parsed?.meaning).toBe('سلام');
     expect(parsed?.partOfSpeech).toBe('interjection');
+  });
+
+  it('detects primarily Persian script', () => {
+    expect(isPrimarilyPersianScript('سلام دنیا')).toBe(true);
+    expect(isPrimarilyPersianScript('hello world')).toBe(false);
   });
 });

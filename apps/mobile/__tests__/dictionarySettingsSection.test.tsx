@@ -33,7 +33,7 @@ describe('DictionarySettingsSection', () => {
     const { getByTestId } = render(
       <DictionarySettingsSection
         theme={theme}
-        settings={{ ...defaultDictionarySettings(), translationLanguage: 'de-DE' as never }}
+        settings={{ ...defaultDictionarySettings(), translationLanguage: 'tr-TR' as never }}
         entries={[]}
         onEntriesChange={noop}
         onOpenLanguagePicker={onOpenLanguagePicker}

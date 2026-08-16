@@ -15,7 +15,8 @@ local.properties
 # Bundle artifacts
 *.jsbundle
 
-# Release signing secrets (local only)
+# Signing secrets / keystores (local only — never commit)
 keystore.properties
 *.jks
-!debug.keystore
+*.keystore
+debug.keystore

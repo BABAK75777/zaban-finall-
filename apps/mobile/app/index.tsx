@@ -3,7 +3,10 @@
  */
 
 import Constants from 'expo-constants';
-import { Audio } from 'expo-av';
+import {
+  getRecordingPermissionsAsync,
+  requestRecordingPermissionsAsync,
+} from 'expo-audio';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
@@ -25,7 +28,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   MobileAudioPlayer,
   OperationGuard,
@@ -104,7 +107,7 @@ import {
   formatSettingsHeaderTitle,
 } from '../src/ui/settingsPanelLayout';
 import { TopAmbientBar } from '../src/ui/TopAmbientBar';
-import { useResponsiveLayoutMetrics, getContentMaxWidth } from '../src/ui/responsiveLayout';
+import { useResponsiveLayoutMetrics, getContentMaxWidth, MAX_CONTENT_WIDTH } from '../src/ui/responsiveLayout';
 import { READING_TEST_IDS, voiceTestId } from '../src/ui/testIds';
 import { space } from '../src/ui/spacing';
 import {
@@ -126,7 +129,6 @@ import { useAppStateActive } from '../src/ads/useAppStateActive';
 import { useWordHighlight } from '../src/reading/useWordHighlight';
 import {
   defaultDictionarySettings,
-  dictionaryLanguageLabel,
   findDictionaryEntry,
   addMeaningWord,
   hashReadingText,
@@ -143,6 +145,8 @@ import {
   updateDictionarySettings,
   upsertDictionaryEntry,
   migrateDictionaryEntry,
+  practiceLanguageDisplayLabel,
+  isPracticeLanguageProductActive,
   type DictionaryEntry,
   type DictionarySettingsV1,
   type PracticeWordForAi,
@@ -163,6 +167,12 @@ import {
 } from '../src/settings/aiSpeedSettings';
 import { requestOcrFromImageDataUrl } from '../src/ocr/ocrApi';
 import { imageAssetToDataUrl } from '../src/ocr/imageAssetToDataUrl';
+import {
+  validateOcrContentForPractice,
+  validatePracticeLanguageForOcrEntry,
+} from '../src/ocr/ocrPracticeLanguageValidation';
+import { showLanguageMismatchDialog } from '../src/ui/languageMismatchDialog';
+import { showInProgressLanguageDialog } from '../src/ui/inProgressLanguageDialog';
 import { logDictionaryLanguageSelection, logPracticeLanguageSelection } from '../src/utils/resolvePracticeOutputLanguage';
 import { fetchWithTimeout, RequestTimeoutError } from '../src/utils/fetchWithTimeout';
 import {
@@ -246,11 +256,11 @@ async function ensureShadowMicPermission(): Promise<ShadowMicPermission> {
     };
   }
 
-  const current = await Audio.getPermissionsAsync();
+  const current = await getRecordingPermissionsAsync();
   if (current.granted) {
     return { granted: true };
   }
-  const requested = await Audio.requestPermissionsAsync();
+  const requested = await requestRecordingPermissionsAsync();
   if (requested.granted) {
     return { granted: true };
   }
@@ -364,6 +374,7 @@ export default function ReadingScreen() {
   const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
   const contentMaxWidth = getContentMaxWidth(screenWidth);
+  const safeInsets = useSafeAreaInsets();
   const [text, setText] = useState('');
   const [sentences, setSentences] = useState<string[]>([]);
   const [sentenceIndex, setSentenceIndex] = useState(0);
@@ -437,10 +448,10 @@ export default function ReadingScreen() {
     const entry = findDictionaryEntry(
       dictionaryEntries,
       wordLookupKey,
-      dictionarySettings.translationLanguage
+      dictionarySettings.practiceLanguage
     );
     return entry ? migrateDictionaryEntry(entry) : null;
-  }, [dictionaryEntries, wordLookupKey, dictionarySettings.translationLanguage]);
+  }, [dictionaryEntries, wordLookupKey, dictionarySettings.practiceLanguage]);
   const readingTextHashRef = useRef<string | null>(null);
   const chunkSyncGenRef = useRef(0);
   const largeTextWarnedRef = useRef(false);
@@ -464,6 +475,10 @@ export default function ReadingScreen() {
   const sentencesRef = useRef(sentences);
   const sessionHydratedRef = useRef(false);
   const persistSkipLoggedRef = useRef(false);
+  /** Avoid re-chunking the full document on every sentenceIndex persist. */
+  const persistPartsCacheRef = useRef<{ text: string; unit: ReadUnit; parts: string[] } | null>(
+    null
+  );
   const statusRef = useRef<UiStatus>('idle');
   const aiGenerationTokenRef = useRef(0);
   const languageChangeInFlightRef = useRef(false);
@@ -953,8 +968,16 @@ export default function ReadingScreen() {
     let persistText: string;
 
     if (trimmedText) {
-      parts = commitReadingText();
+      // Persist from refs only — never call commitReadingText() here.
+      // That path re-chunks AND setStates, which freezes typing / slider drags.
       persistText = textRef.current;
+      const cache = persistPartsCacheRef.current;
+      if (cache && cache.text === persistText && cache.unit === unit) {
+        parts = cache.parts;
+      } else {
+        parts = createSafeReadingChunks(persistText, unit);
+        persistPartsCacheRef.current = { text: persistText, unit, parts };
+      }
     } else {
       const active = sentencesRef.current;
       persistText = deriveReadingTextForPersist(textRef.current, active);
@@ -993,7 +1016,7 @@ export default function ReadingScreen() {
       textLen: persistText.length,
       fromSentences: persistText !== textRef.current,
     });
-  }, [commitReadingText]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1094,15 +1117,20 @@ export default function ReadingScreen() {
     };
   }, []);
 
-  // Position / unit / speed — persist immediately (force-stop must not lose debounced writes).
+  // Position / unit — persist immediately (force-stop must not lose index/unit).
+  // aiSpeed / ttsVoiceType intentionally excluded: they already persist via
+  // saveAppSettings, and including them re-wrote the entire reading session
+  // (full text JSON) on every slider tick.
   useEffect(() => {
     if (!sessionHydratedRef.current) {
       return;
     }
     void persistReadingSession();
-  }, [readUnit, sentenceIndex, aiSpeed, ttsVoiceType, persistReadingSession]);
+  }, [readUnit, sentenceIndex, persistReadingSession]);
 
-  // Text typing — debounce; flush pending write on cleanup (unmount / rapid edits).
+  // Text typing — debounce only. Do NOT flush persist in cleanup: that cleanup
+  // runs on every keystroke (dep change), defeating the debounce and freezing
+  // the JS thread with re-chunk + AsyncStorage of the full document.
   useEffect(() => {
     if (!sessionHydratedRef.current) {
       return;
@@ -1112,9 +1140,17 @@ export default function ReadingScreen() {
     }, 450);
     return () => {
       clearTimeout(id);
-      void persistReadingSession();
     };
   }, [text, persistReadingSession]);
+
+  // Flush any pending typed text once on unmount (AppState already persists on background).
+  useEffect(() => {
+    return () => {
+      if (sessionHydratedRef.current) {
+        void persistReadingSession();
+      }
+    };
+  }, [persistReadingSession]);
 
   const handleTextChange = useCallback((raw: string) => {
     clearHighlightedWord('text_replaced');
@@ -1129,16 +1165,13 @@ export default function ReadingScreen() {
     }
   }, [clearHighlightedWord]);
 
+  // Debounced UI chunk sync only — persist is owned by the text debounce above.
   useEffect(() => {
     const id = setTimeout(() => {
-      void syncSentencesFromTextAsync(textRef.current).then(() => {
-        if (sessionHydratedRef.current) {
-          void persistReadingSession();
-        }
-      });
+      void syncSentencesFromTextAsync(textRef.current);
     }, 300);
     return () => clearTimeout(id);
-  }, [text, readUnit, syncSentencesFromTextAsync, persistReadingSession]);
+  }, [text, readUnit, syncSentencesFromTextAsync]);
 
   const playSentence = useCallback(
     async (index: number, source: PlaySource, list: string[]) => {
@@ -1502,6 +1535,9 @@ export default function ReadingScreen() {
     (acceptedRaw: string) => {
       void (async () => {
         const acceptedId = migrateAiGenerationLanguageId(acceptedRaw);
+        if (!isPracticeLanguageProductActive(acceptedId)) {
+          return;
+        }
         const savedId = migrateAiGenerationLanguageId(
           dictionarySettingsRef.current.practiceLanguage
         );
@@ -1628,6 +1664,13 @@ export default function ReadingScreen() {
     async (source: 'library' | 'camera') => {
       if (ocrLoading) return;
 
+      const practiceLanguage = dictionarySettingsRef.current.practiceLanguage;
+      const entryGuard = validatePracticeLanguageForOcrEntry(practiceLanguage);
+      if (entryGuard.status === 'LANGUAGE_UNAVAILABLE') {
+        showInProgressLanguageDialog();
+        return;
+      }
+
       console.log(`[OCR] image selected source=${source}`);
       const permission =
         source === 'library'
@@ -1681,6 +1724,20 @@ export default function ReadingScreen() {
         console.log('[OCR] request started');
         const extracted = await requestOcrFromImageDataUrl(dataUrl);
         console.log(`[OCR] result length=${extracted.length}`);
+
+        const contentGuard = validateOcrContentForPractice(practiceLanguage, extracted);
+        if (contentGuard.status === 'LANGUAGE_UNAVAILABLE') {
+          showInProgressLanguageDialog();
+          return;
+        }
+        if (contentGuard.status === 'LANGUAGE_MISMATCH') {
+          console.log(
+            `[OCR] language mismatch practice=${practiceLanguage} detected=${contentGuard.detectedContentLanguage ?? 'unknown'}`
+          );
+          showLanguageMismatchDialog(practiceLanguage);
+          return;
+        }
+
         setShowSettings(false);
         handleTextChange(extracted);
         const parts = await syncSentencesFromTextAsync(extracted, readUnitRef.current, true);
@@ -1717,11 +1774,12 @@ export default function ReadingScreen() {
     (lookup: string, displayWord: string) => {
       if (!lookup || sentencesRef.current.length === 0) return;
 
-      const targetLanguage = dictionarySettingsRef.current.translationLanguage;
+      const translationLanguage = dictionarySettingsRef.current.translationLanguage;
+      const practiceLanguage = dictionarySettingsRef.current.practiceLanguage;
       console.log(
-        `[LANGUAGE:TRANSLATE_REQUEST] target=${targetLanguage} word=${displayWord}`
+        `[LANGUAGE:TRANSLATE_REQUEST] target=${translationLanguage} word=${displayWord}`
       );
-      const existing = findDictionaryEntry(dictionaryEntriesRef.current, lookup, targetLanguage);
+      const existing = findDictionaryEntry(dictionaryEntriesRef.current, lookup, practiceLanguage);
       const context =
         sentencesRef.current[sentenceIndexRef.current] ?? sentencesRef.current[0] ?? '';
 
@@ -1744,7 +1802,7 @@ export default function ReadingScreen() {
           const result = await requestWordLookup(API_BASE_URL, {
             word: displayWord,
             context,
-            targetLanguage,
+            targetLanguage: translationLanguage,
           });
 
           if (wordLookupGenRef.current !== lookupGen) return;
@@ -1772,15 +1830,15 @@ export default function ReadingScreen() {
                   displayWord,
                   meaning: result.meaning,
                   partOfSpeech: result.partOfSpeech,
-                  targetLanguage,
+                  practiceLanguage,
                 },
                 { meaningAskedAgain: Boolean(existing) }
               ),
             }),
-            { word: lookup, language: targetLanguage }
+            { word: lookup, language: practiceLanguage }
           );
           setDictionaryEntries(store.entries);
-          const touched = findDictionaryEntry(store.entries, lookup, targetLanguage);
+          const touched = findDictionaryEntry(store.entries, lookup, practiceLanguage);
           setWordLookupSaved(Boolean(touched));
           setWordLookupCount(touched?.lookupCount ?? 1);
         } catch (err) {
@@ -1804,15 +1862,15 @@ export default function ReadingScreen() {
     if (!wordLookupKey || !wordLookupMeaning || wordLookupLoading) return;
 
     void (async () => {
-      const targetLanguage = dictionarySettings.translationLanguage;
+      const practiceLanguage = dictionarySettings.practiceLanguage;
 
       if (wordLookupSaved) {
         const store = await mutateDictionaryStore(
           (current) => ({
             ...current,
-            entries: removeDictionaryEntry(current.entries, wordLookupKey, targetLanguage),
+            entries: removeDictionaryEntry(current.entries, wordLookupKey, practiceLanguage),
           }),
-          { word: wordLookupKey, language: targetLanguage }
+          { word: wordLookupKey, language: practiceLanguage }
         );
         setDictionaryEntries(store.entries);
         setWordLookupSaved(false);
@@ -1831,22 +1889,22 @@ export default function ReadingScreen() {
             displayWord: wordLookupDisplay,
             meaning: wordLookupMeaning,
             partOfSpeech: wordLookupPartOfSpeech ?? undefined,
-            targetLanguage,
+            practiceLanguage,
             textAppearanceCount:
-              findDictionaryEntry(withAppearance, wordLookupKey, targetLanguage)
+              findDictionaryEntry(withAppearance, wordLookupKey, practiceLanguage)
                 ?.textAppearanceCount ?? 1,
           });
           return { ...current, entries: nextEntries };
         },
-        { word: wordLookupKey, language: targetLanguage }
+        { word: wordLookupKey, language: practiceLanguage }
       );
-      const saved = findDictionaryEntry(store.entries, wordLookupKey, targetLanguage);
+      const saved = findDictionaryEntry(store.entries, wordLookupKey, practiceLanguage);
       setDictionaryEntries(store.entries);
       setWordLookupSaved(true);
       setWordLookupCount(saved?.lookupCount ?? 1);
     })();
   }, [
-    dictionarySettings.translationLanguage,
+    dictionarySettings.practiceLanguage,
     wordLookupDisplay,
     wordLookupKey,
     wordLookupLoading,
@@ -2259,9 +2317,26 @@ export default function ReadingScreen() {
             transparent
             onRequestClose={() => setShowSettings(false)}
           >
-            <Pressable style={styles.settingsBackdrop} onPress={() => setShowSettings(false)}>
+            <Pressable
+              style={[
+                styles.settingsBackdrop,
+                // Modal hosts its own window — fixed paddingTop:56 clips under large notches.
+                { paddingTop: Math.max(56, safeInsets.top + 12) },
+              ]}
+              onPress={() => setShowSettings(false)}
+            >
               <Pressable
-                style={[styles.settingsPanel, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                style={[
+                  styles.settingsPanel,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    // Match reading column on tablets (Modal ignores parent maxWidth).
+                    maxWidth: MAX_CONTENT_WIDTH,
+                    width: '100%',
+                    alignSelf: 'center',
+                  },
+                ]}
                 onPress={(e) => e.stopPropagation()}
                 testID={READING_TEST_IDS.settingsPanel}
               >
@@ -2306,14 +2381,18 @@ export default function ReadingScreen() {
                       { borderColor: colors.border, backgroundColor: colors.bg },
                       pressed && { opacity: 0.85 },
                     ]}
-                    onPress={() => setShowAiLanguageModal(true)}
+                    onPress={() => {
+                      // Close Settings first — nested RN Modals fail to present reliably
+                      // (same pattern as Edit / AI / Dictionary tiles).
+                      openAfterSettings(() => setShowAiLanguageModal(true));
+                    }}
                     accessibilityRole="button"
-                    accessibilityLabel={`Languages ${dictionaryLanguageLabel(dictionarySettings.practiceLanguage)}`}
+                    accessibilityLabel={`Languages ${practiceLanguageDisplayLabel(dictionarySettings.practiceLanguage)}`}
                     testID={READING_TEST_IDS.settingsLanguages}
                   >
                     <Text style={[styles.helpLinkLabel, { color: colors.text }]}>Languages</Text>
                     <Text style={[styles.helpLinkValue, { color: colors.textMuted }]}>
-                      {dictionaryLanguageLabel(dictionarySettings.practiceLanguage)}
+                      {practiceLanguageDisplayLabel(dictionarySettings.practiceLanguage)}
                     </Text>
                   </Pressable>
 
@@ -2703,7 +2782,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'flex-start',
-    paddingTop: 56,
     paddingHorizontal: 16,
   },
   settingsPanel: {

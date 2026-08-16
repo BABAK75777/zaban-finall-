@@ -26,46 +26,44 @@ describe('AI language Accept behavior', () => {
     ).toBe('noop');
   });
 
-  it('different language with existing text regenerates', () => {
+  it('different language with existing text regenerates for active langs', () => {
+    expect(
+      resolveAiLanguageAcceptAction({
+        savedLanguageId: 'en-US',
+        acceptedLanguageId: 'tr-TR',
+        hasGeneratedText: true,
+      })
+    ).toBe('save_and_regenerate');
+  });
+
+  it('different language with no text saves only for active langs', () => {
+    expect(
+      resolveAiLanguageAcceptAction({
+        savedLanguageId: 'en-US',
+        acceptedLanguageId: 'tr-TR',
+        hasGeneratedText: false,
+      })
+    ).toBe('save_only');
+  });
+
+  it('In Progress accepted language is a no-op', () => {
     expect(
       resolveAiLanguageAcceptAction({
         savedLanguageId: 'en-US',
         acceptedLanguageId: 'en-GB',
         hasGeneratedText: true,
       })
-    ).toBe('save_and_regenerate');
-  });
-
-  it('different language with no text saves only', () => {
-    expect(
-      resolveAiLanguageAcceptAction({
-        savedLanguageId: 'en-US',
-        acceptedLanguageId: 'en-GB',
-        hasGeneratedText: false,
-      })
-    ).toBe('save_only');
+    ).toBe('noop');
   });
 
   it('whitespace-only text counts as no generated content', () => {
     expect(
       resolveAiLanguageAcceptAction({
-        savedLanguageId: 'fr-FR',
-        acceptedLanguageId: 'de-DE',
+        savedLanguageId: 'en-US',
+        acceptedLanguageId: 'tr-TR',
         hasGeneratedText: '   '.trim().length > 0,
       })
     ).toBe('save_only');
-  });
-
-  it('language-switch payload uses en-GB British instruction', () => {
-    const payload = buildLanguageSwitchGeneratePayload(
-      'en-GB',
-      'I like the color of my favorite apartment.'
-    );
-    expect(payload.targetLanguage).toBe('en-GB');
-    expect(payload.targetLocale).toBe('en-GB');
-    expect(payload.targetLanguageInstruction.toLowerCase()).toContain('british');
-    expect(payload.prompt).toContain('color of my favorite apartment');
-    expect(buildLanguageSwitchRegeneratePrompt('hello').toLowerCase()).toContain('reference text');
   });
 
   it('language-switch payload uses en-US American instruction', () => {
@@ -73,6 +71,17 @@ describe('AI language Accept behavior', () => {
     expect(payload.targetLanguage).toBe('en-US');
     expect(payload.targetLocale).toBe('en-US');
     expect(payload.targetLanguageInstruction.toLowerCase()).toContain('american');
+  });
+
+  it('language-switch payload for Turkish uses tr-TR', () => {
+    const payload = buildLanguageSwitchGeneratePayload(
+      'tr-TR',
+      'I like the color of my favorite apartment.'
+    );
+    expect(payload.targetLanguage).toBe('tr-TR');
+    expect(payload.targetLocale).toBe('tr-TR');
+    expect(payload.prompt).toContain('color of my favorite apartment');
+    expect(buildLanguageSwitchRegeneratePrompt('hello').toLowerCase()).toContain('reference text');
   });
 });
 

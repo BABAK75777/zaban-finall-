@@ -9,11 +9,17 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  getAiGenerationLanguages,
   migrateAiGenerationLanguageId,
   DEFAULT_PRACTICE_LANGUAGE,
 } from '../dictionary/dictionaryLanguages';
+import {
+  getVisiblePracticeLanguages,
+  IN_PROGRESS_BADGE_LABEL,
+  LANGUAGE_REQUEST_CTA_LABEL,
+  isPracticeLanguageProductActive,
+} from '../dictionary/languageAvailability';
 import type { ThemePalette } from '../theme/themeTypes';
+import { showInProgressLanguageDialog } from './inProgressLanguageDialog';
 import { space } from './spacing';
 
 export const AI_GENERATION_LANGUAGE_MODAL_TEST_IDS = {
@@ -21,6 +27,8 @@ export const AI_GENERATION_LANGUAGE_MODAL_TEST_IDS = {
   close: 'ai-generation-language-close',
   accept: 'ai-generation-language-accept',
   option: (code: string) => `ai-generation-language-option-${code}`,
+  inProgressBadge: (code: string) => `ai-generation-language-in-progress-${code}`,
+  languageRequestCta: 'ai-generation-language-request-cta',
 } as const;
 
 type Props = {
@@ -42,13 +50,18 @@ export function AiGenerationLanguageModal({
   accepting = false,
 }: Props) {
   const colors = theme;
-  const languages = getAiGenerationLanguages();
+  const languages = getVisiblePracticeLanguages();
   const savedId = migrateAiGenerationLanguageId(selected, DEFAULT_PRACTICE_LANGUAGE);
-  const [tempSelected, setTempSelected] = useState(savedId);
+  const [tempSelected, setTempSelected] = useState(
+    isPracticeLanguageProductActive(savedId) ? savedId : DEFAULT_PRACTICE_LANGUAGE
+  );
 
   useEffect(() => {
     if (visible) {
-      setTempSelected(migrateAiGenerationLanguageId(selected, DEFAULT_PRACTICE_LANGUAGE));
+      const next = migrateAiGenerationLanguageId(selected, DEFAULT_PRACTICE_LANGUAGE);
+      setTempSelected(
+        isPracticeLanguageProductActive(next) ? next : DEFAULT_PRACTICE_LANGUAGE
+      );
     }
   }, [visible, selected]);
 
@@ -59,7 +72,12 @@ export function AiGenerationLanguageModal({
 
   const handleAccept = () => {
     if (accepting) return;
-    onAccept(migrateAiGenerationLanguageId(tempSelected, DEFAULT_PRACTICE_LANGUAGE));
+    const id = migrateAiGenerationLanguageId(tempSelected, DEFAULT_PRACTICE_LANGUAGE);
+    if (!isPracticeLanguageProductActive(id)) {
+      showInProgressLanguageDialog();
+      return;
+    }
+    onAccept(id);
   };
 
   return (
@@ -99,37 +117,64 @@ export function AiGenerationLanguageModal({
           >
             {languages.map((lang) => {
               const isSelected = tempSelected === lang.id;
+              const inProgress = lang.status === 'in_progress';
               return (
                 <Pressable
                   key={lang.id}
-                  onPress={() => setTempSelected(lang.id)}
+                  onPress={() => {
+                    if (inProgress) {
+                      showInProgressLanguageDialog();
+                      return;
+                    }
+                    setTempSelected(lang.id);
+                  }}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected }}
-                  accessibilityLabel={lang.label}
+                  accessibilityState={{ selected: isSelected, disabled: inProgress }}
+                  accessibilityLabel={
+                    inProgress ? `${lang.label}, ${IN_PROGRESS_BADGE_LABEL}` : lang.label
+                  }
                   testID={AI_GENERATION_LANGUAGE_MODAL_TEST_IDS.option(lang.id)}
                   style={({ pressed }) => [
                     styles.option,
                     {
                       borderColor: isSelected ? colors.selection.border : colors.border,
                       backgroundColor: isSelected ? colors.selection.bg : 'transparent',
+                      opacity: inProgress ? 0.72 : 1,
                     },
                     pressed && { opacity: 0.85 },
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      { color: isSelected ? colors.selection.text : colors.text },
-                    ]}
-                  >
-                    {lang.label}
-                  </Text>
-                  {isSelected ? (
+                  <View style={styles.optionMain}>
+                    <Text
+                      style={[
+                        styles.optionText,
+                        { color: isSelected ? colors.selection.text : colors.text },
+                      ]}
+                    >
+                      {lang.label}
+                    </Text>
+                    {inProgress ? (
+                      <Text
+                        style={[styles.inProgress, { color: colors.textMuted }]}
+                        testID={AI_GENERATION_LANGUAGE_MODAL_TEST_IDS.inProgressBadge(lang.id)}
+                      >
+                        {IN_PROGRESS_BADGE_LABEL}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {isSelected && !inProgress ? (
                     <Text style={[styles.check, { color: colors.selection.text }]}>✓</Text>
                   ) : null}
                 </Pressable>
               );
             })}
+            <Text
+              style={[styles.requestCta, { color: colors.textMuted }]}
+              testID={AI_GENERATION_LANGUAGE_MODAL_TEST_IDS.languageRequestCta}
+              accessibilityRole="text"
+            >
+              {LANGUAGE_REQUEST_CTA_LABEL}
+            </Text>
           </ScrollView>
 
           <View
@@ -216,15 +261,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
-  optionText: {
+  optionMain: {
     flex: 1,
+    paddingRight: 8,
+    gap: 2,
+  },
+  optionText: {
     fontSize: 15,
     fontWeight: '500',
-    paddingRight: 8,
+  },
+  inProgress: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   check: {
     fontSize: 16,
     fontWeight: '700',
+  },
+  requestCta: {
+    marginTop: 8,
+    marginBottom: 4,
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,

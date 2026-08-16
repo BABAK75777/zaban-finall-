@@ -93,6 +93,9 @@ export interface ThemePalette {
   inputPlaceholder: string;
   inputBorder: string;
 
+  /** Themed background for the ad footer reserved slot (not the AdMob creative). */
+  adSlotBackground: string;
+
   statusBar: 'light' | 'dark';
 
   atmosphere: AtmosphereTokens;

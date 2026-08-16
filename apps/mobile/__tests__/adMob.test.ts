@@ -41,11 +41,11 @@ describe('adMob config', () => {
     expect(resolveAdMobAppIds().androidAppId).not.toBe(GOOGLE_SAMPLE_APP_ID);
   });
 
-  it('Test 1 — dev build uses test ad unit', () => {
+  it('Test 1 — dev build uses production unit (no Google Test Ad watermark)', () => {
     const unitId = getBannerAdUnitId({ dev: true, platform: 'android' });
-    expect(unitId).toBe(GOOGLE_TEST_BANNER_ID);
-    expect(unitId).not.toBe(PRODUCTION_BANNER_AD_UNIT_ID);
-    expect(getBannerAdUnitMode({ dev: true, platform: 'android' })).toBe('test');
+    expect(unitId).toBe(PRODUCTION_BANNER_AD_UNIT_ID);
+    expect(unitId).not.toBe(GOOGLE_TEST_BANNER_ID);
+    expect(getBannerAdUnitMode({ dev: true, platform: 'android' })).toBe('production');
   });
 
   it('Test 2 — explicit test env uses test ad unit', () => {
@@ -56,14 +56,14 @@ describe('adMob config', () => {
     expect(getBannerAdUnitMode({ dev: false, platform: 'android' })).toBe('test');
   });
 
-  it('Test 3 — production mode uses production ad unit only when allowed', () => {
+  it('Test 3 — production mode keeps production unit in release and debug', () => {
     process.env.EXPO_PUBLIC_ADMOB_USE_PRODUCTION_IDS = '1';
     process.env.EXPO_PUBLIC_USE_TEST_ADS = 'false';
     expect(getBannerAdUnitId({ dev: false, platform: 'android' })).toBe(
       PRODUCTION_BANNER_AD_UNIT_ID
     );
     expect(getBannerAdUnitMode({ dev: false, platform: 'android' })).toBe('production');
-    expect(getBannerAdUnitId({ dev: true, platform: 'android' })).not.toBe(
+    expect(getBannerAdUnitId({ dev: true, platform: 'android' })).toBe(
       PRODUCTION_BANNER_AD_UNIT_ID
     );
   });
@@ -78,6 +78,22 @@ describe('adMob config', () => {
   it('disables ads during validation builds', () => {
     process.env.EXPO_PUBLIC_VALIDATION_BUILD = '1';
     expect(areAdsEnabled()).toBe(false);
+  });
+
+  it('keeps the ad banner enabled in debug (watermark fixed via production unit)', () => {
+    expect(areAdsEnabled({ dev: true, platform: 'android' })).toBe(true);
+    expect(areAdsEnabled({ dev: true, platform: 'ios' })).toBe(true);
+  });
+
+  it('keeps ads enabled when explicit test-ad mode is on (banner still shows)', () => {
+    process.env.EXPO_PUBLIC_USE_TEST_ADS = 'true';
+    expect(areAdsEnabled({ dev: false, platform: 'android' })).toBe(true);
+    expect(areAdsEnabled({ dev: false, platform: 'ios' })).toBe(true);
+  });
+
+  it('enables ads on release builds with production units', () => {
+    expect(areAdsEnabled({ dev: false, platform: 'android' })).toBe(true);
+    expect(areAdsEnabled({ dev: false, platform: 'ios' })).toBe(true);
   });
 
   it('uses env override for production Android banner unit', () => {

@@ -10,6 +10,6 @@ describe('getAppVersionLabel', () => {
   });
 
   it('defaults to package.json version', () => {
-    expect(getAppVersionLabel()).toBe('Mamlio v1.3.2');
+    expect(getAppVersionLabel()).toBe('Mamlio v1.3.3');
   });
 });

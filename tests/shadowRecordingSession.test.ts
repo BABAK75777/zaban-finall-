@@ -6,7 +6,13 @@ import {
   startShadowRecording,
   stopShadowRecording,
 } from '../apps/mobile/src/audio/shadowRecordingSession';
-import { __getPreparedRecordingForTests, __resetExpoAvMockForTests } from './mocks/expo-av';
+import {
+  __getPreparedRecordingForTests,
+  __getSelectedInputUidForTests,
+  __getSetAudioModeCallCountForTests,
+  __resetExpoAvMockForTests,
+  __setAvailableInputsForTests,
+} from './mocks/expo-audio';
 
 describe('shadowRecordingSession', () => {
   beforeEach(() => {
@@ -63,6 +69,44 @@ describe('shadowRecordingSession', () => {
       }),
     ]);
     expect(order).toEqual([1, 2, 3]);
+  });
+
+  it('selects wired headset mic before recording starts', async () => {
+    __setAvailableInputsForTests([
+      { uid: 'builtin-1', name: 'Phone', type: 'MicrophoneBuiltIn' },
+      { uid: 'wired-1', name: 'Headset', type: 'MicrophoneWired' },
+    ]);
+
+    await startShadowRecording();
+    expect(__getSelectedInputUidForTests()).toBe('wired-1');
+    await stopShadowRecording();
+  });
+
+  it('selects bluetooth SCO mic when wired headset is absent', async () => {
+    __setAvailableInputsForTests([
+      { uid: 'builtin-1', name: 'Phone', type: 'MicrophoneBuiltIn' },
+      { uid: 'bt-1', name: 'BT Headset', type: 'BluetoothSCO' },
+    ]);
+
+    await startShadowRecording();
+    expect(__getSelectedInputUidForTests()).toBe('bt-1');
+    await stopShadowRecording();
+  });
+
+  it('keeps phone mic when only builtin input is available', async () => {
+    __setAvailableInputsForTests([
+      { uid: 'builtin-1', name: 'Phone', type: 'MicrophoneBuiltIn' },
+    ]);
+
+    await startShadowRecording();
+    expect(__getSelectedInputUidForTests()).toBe('builtin-1');
+    await stopShadowRecording();
+  });
+
+  it('configures recording audio mode once per recording session start', async () => {
+    await startShadowRecording();
+    expect(__getSetAudioModeCallCountForTests()).toBe(1);
+    await stopShadowRecording();
   });
 });
 

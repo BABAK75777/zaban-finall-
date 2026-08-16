@@ -8,12 +8,14 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { glassStyle } from '../theme/glass';
 import type { ThemePalette } from '../theme/themeTypes';
 import { space } from './spacing';
 
 const CLOSE_SIZE = 44;
+/** Minimum visual peek of backdrop above the sheet on devices with tiny top insets. */
+const SHEET_TOP_GAP = 16;
 
 type Props = {
   visible: boolean;
@@ -39,6 +41,10 @@ export function FullScreenModalShell({
   keyboardAvoiding = false,
 }: Props) {
   const colors = theme;
+  const insets = useSafeAreaInsets();
+  // Panel already clears the status bar / notch — do not also apply SafeArea top
+  // (that double-counted and starved short phones / landscape).
+  const panelTop = Math.max(SHEET_TOP_GAP, insets.top);
 
   const body = (
     <>
@@ -84,10 +90,13 @@ export function FullScreenModalShell({
           testID={dismissTestID}
         />
         <View
-          style={[styles.panel, { backgroundColor: colors.bg, borderColor: colors.border }]}
+          style={[
+            styles.panel,
+            { top: panelTop, backgroundColor: colors.bg, borderColor: colors.border },
+          ]}
           testID={testID}
         >
-          <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+          <SafeAreaView style={styles.safe} edges={['bottom']}>
             {keyboardAvoiding ? (
               <KeyboardAvoidingView
                 style={styles.flex}
@@ -115,7 +124,6 @@ const styles = StyleSheet.create({
   },
   panel: {
     ...StyleSheet.absoluteFillObject,
-    top: 48,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,

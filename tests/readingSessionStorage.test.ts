@@ -25,7 +25,7 @@ describe('readingSessionStorage', () => {
       readUnit: '2',
       sentenceIndex: 1,
       sentenceId: 'id-Beta',
-      aiSpeed: 1.0,
+      aiSpeed: 1.3,
       savedAt: 1_700_000_000_000,
     });
 
@@ -36,10 +36,40 @@ describe('readingSessionStorage', () => {
       readUnit: '2',
       sentenceIndex: 1,
       sentenceId: 'id-Beta',
-      aiSpeed: 1.0,
+      aiSpeed: 1.3,
       savedAt: 1_700_000_000_000,
     });
     expect(asyncStore.get(READING_SESSION_KEY)).toBeTruthy();
+  });
+
+  it('persists and restores AI speed setting', async () => {
+    await saveReadingSession({
+      version: 1,
+      text: 'Speed test.',
+      readUnit: '1',
+      sentenceIndex: 0,
+      sentenceId: null,
+      aiSpeed: 0.5,
+      savedAt: Date.now(),
+    });
+    const loaded = await loadReadingSession();
+    expect(loaded?.aiSpeed).toBe(0.5);
+  });
+
+  it('defaults aiSpeed to 1.0 when missing on load', async () => {
+    asyncStore.set(
+      READING_SESSION_KEY,
+      JSON.stringify({
+        version: 1,
+        text: 'Hello.',
+        readUnit: '1',
+        sentenceIndex: 0,
+        sentenceId: null,
+        savedAt: Date.now(),
+      })
+    );
+    const loaded = await loadReadingSession();
+    expect(loaded?.aiSpeed).toBe(1.0);
   });
 
   it('clear removes session key', async () => {

@@ -1,0 +1,18 @@
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/zaban-api:$_TAG"
+      - "-f"
+      - "backend/Dockerfile"
+      - "."
+
+images:
+  - "europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/zaban-api:$_TAG"
+
+substitutions:
+  _TAG: dict-lang-fix-manual
+
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -15,6 +15,14 @@ describe('OperationGuard endurance logs', () => {
     vi.restoreAllMocks();
   });
 
+  it('rejects duplicate acquire while busy', () => {
+    const guard = new OperationGuard();
+    guard.tryAcquire('ai_playback');
+    expect(guard.tryAcquire('ai_playback')).toBeNull();
+    guard.cancel();
+    expect(guard.getActive()).toBe('idle');
+  });
+
   it('emits guard_transition on acquire, release, cancel, reject', () => {
     const guard = new OperationGuard();
 

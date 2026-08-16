@@ -81,6 +81,7 @@ export function NavPills({
           numberOfLines={1}
           adjustsFontSizeToFit
           minimumFontScale={0.85}
+          allowFontScaling={false}
         >
           ← Back
         </Text>
@@ -114,6 +115,7 @@ export function NavPills({
               { color: labelColor, fontFamily: UI_FONT_SEMIBOLD, fontSize: layout.navLabelFontSize },
             ]}
             numberOfLines={1}
+            allowFontScaling={false}
           >
             AI
           </Text>
@@ -143,6 +145,7 @@ export function NavPills({
           numberOfLines={1}
           adjustsFontSizeToFit
           minimumFontScale={0.85}
+          allowFontScaling={false}
         >
           Next →
         </Text>

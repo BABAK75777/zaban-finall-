@@ -4,6 +4,9 @@ import { PanResponder, StyleSheet, View } from 'react-native';
 const THUMB_SIZE = 24;
 const TRACK_HEIGHT = 4;
 const HIT_HEIGHT = 44;
+const THUMB_SIZE_MICRO = 12;
+const TRACK_HEIGHT_MICRO = 2;
+const HIT_HEIGHT_MICRO = 28;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -28,6 +31,8 @@ export interface SettingSliderProps {
   track: string;
   /** Tighter vertical spacing for stacked slider rows (e.g. AI modal). */
   compact?: boolean;
+  /** Minimal track/thumb for settings panel rows. */
+  micro?: boolean;
   /** Two-sided sliders (left/right labels) — taller, brighter fill rail. */
   bilateral?: boolean;
   /** Stable id for automation (hit target). */
@@ -46,6 +51,7 @@ export function SettingSlider({
   border,
   track,
   compact = false,
+  micro = false,
   bilateral = false,
   testID,
 }: SettingSliderProps) {
@@ -66,9 +72,15 @@ export function SettingSlider({
     lastEmittedRef.current = value;
   }, [value]);
 
+  const thumbSize = micro ? THUMB_SIZE_MICRO : THUMB_SIZE;
+  const trackHeight = micro ? TRACK_HEIGHT_MICRO : TRACK_HEIGHT;
+  const hitHeight = micro ? HIT_HEIGHT_MICRO : HIT_HEIGHT;
+  const thumbSizeRef = useRef(thumbSize);
+  thumbSizeRef.current = thumbSize;
+
   const displayValue = dragValue ?? value;
   const ratio = (displayValue - min) / (max - min);
-  const thumbTravel = Math.max(0, trackWidth - THUMB_SIZE);
+  const thumbTravel = Math.max(0, trackWidth - thumbSize);
   const thumbLeft = thumbTravel * ratio;
 
   const syncTrackMetrics = useCallback((callback?: () => void) => {
@@ -83,10 +95,11 @@ export function SettingSlider({
   const valueFromPageX = useCallback(
     (pageX: number): number | null => {
       const width = trackWidthRef.current;
-      if (width <= THUMB_SIZE) return null;
+      const thumb = thumbSizeRef.current;
+      if (width <= thumb) return null;
       const localX = pageX - trackOriginXRef.current;
-      const usable = width - THUMB_SIZE;
-      const t = clamp((localX - THUMB_SIZE / 2) / usable, 0, 1);
+      const usable = width - thumb;
+      const t = clamp((localX - thumb / 2) / usable, 0, 1);
       return snapToStep(min + t * (max - min), min, max, step);
     },
     [min, max, step]
@@ -140,11 +153,11 @@ export function SettingSlider({
     [updateFromPageX, beginDrag, endDrag, syncTrackMetrics]
   );
 
-  const railHeight = TRACK_HEIGHT;
+  const railHeight = trackHeight;
 
   return (
     <View
-      style={[styles.wrap, compact && styles.wrapCompact]}
+      style={[styles.wrap, compact && styles.wrapCompact, micro && styles.wrapMicro]}
       accessibilityRole="adjustable"
       accessibilityValue={{
         min,
@@ -155,7 +168,7 @@ export function SettingSlider({
       <View
         ref={hitAreaRef}
         testID={testID}
-        style={styles.hitArea}
+        style={[styles.hitArea, { height: hitHeight }]}
         onLayout={() => {
           syncTrackMetrics();
         }}
@@ -169,6 +182,7 @@ export function SettingSlider({
               borderRadius: railHeight / 2,
               backgroundColor: track,
               borderColor: border,
+              marginHorizontal: thumbSize / 2,
             },
           ]}
         >
@@ -189,8 +203,13 @@ export function SettingSlider({
             styles.thumb,
             {
               left: thumbLeft,
+              top: (hitHeight - thumbSize) / 2,
+              width: thumbSize,
+              height: thumbSize,
+              borderRadius: thumbSize / 2,
               backgroundColor: accent,
               borderColor: border,
+              borderWidth: micro ? 1 : 2,
             },
           ]}
         />
@@ -206,25 +225,21 @@ const styles = StyleSheet.create({
   wrapCompact: {
     marginBottom: 0,
   },
+  wrapMicro: {
+    marginBottom: 0,
+  },
   hitArea: {
-    height: HIT_HEIGHT,
     justifyContent: 'center',
   },
   trackRail: {
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
-    marginHorizontal: THUMB_SIZE / 2,
   },
   fill: {
     height: '100%',
   },
   thumb: {
     position: 'absolute',
-    top: (HIT_HEIGHT - THUMB_SIZE) / 2,
-    width: THUMB_SIZE,
-    height: THUMB_SIZE,
-    borderRadius: THUMB_SIZE / 2,
-    borderWidth: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.12,

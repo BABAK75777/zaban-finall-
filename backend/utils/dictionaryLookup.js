@@ -1,37 +1,26 @@
+import {
+  isDictionaryLanguageCode,
+  resolveDictionaryLanguage,
+} from '@zaban/dictionary-languages';
 import { resolveOutputLanguageFromCode } from './resolveOutputLanguage.js';
 
-/** @type {Set<string>} */
-export const DICTIONARY_LANGUAGE_CODES = new Set([
-  'ar',
-  'en',
-  'fr',
-  'de',
-  'hi',
-  'ko',
-  'fa',
-  'pt',
-  'ru',
-  'es',
-  'tr',
-  'uk',
-  'ur',
-]);
+export { isDictionaryLanguageCode };
 
 /**
- * @param {string} code
- * @returns {boolean}
- */
-export function isDictionaryLanguageCode(code) {
-  return typeof code === 'string' && DICTIONARY_LANGUAGE_CODES.has(code.trim().toLowerCase());
-}
-
-/**
- * @param {{ word: string, context?: string, targetLanguage: string, sourceLanguage?: string }} params
+ * @param {{ word: string, context?: string, targetLanguage: string, targetLanguageName?: string, sourceLanguage?: string }} params
  * @returns {{ role: string, content: string }[]}
  */
-export function buildDictionaryLookupMessages({ word, context, targetLanguage, sourceLanguage }) {
-  const target = resolveOutputLanguageFromCode(targetLanguage);
-  const targetLabel = target?.language ?? targetLanguage;
+export function buildDictionaryLookupMessages({
+  word,
+  context,
+  targetLanguage,
+  targetLanguageName,
+  sourceLanguage,
+}) {
+  const resolved =
+    resolveDictionaryLanguage(targetLanguage) ?? resolveOutputLanguageFromCode(targetLanguage);
+  const targetLabel = targetLanguageName ?? resolved?.language ?? targetLanguage;
+  const targetCode = resolved?.code ?? targetLanguage.trim().toLowerCase();
   const sourceLabel =
     sourceLanguage && resolveOutputLanguageFromCode(sourceLanguage)
       ? resolveOutputLanguageFromCode(sourceLanguage).language
@@ -41,6 +30,11 @@ export function buildDictionaryLookupMessages({ word, context, targetLanguage, s
     context && context.trim()
       ? `Sentence context: "${context.trim().slice(0, 280)}"`
       : 'No sentence context provided.';
+
+  const meaningLanguageRule =
+    targetCode === 'fa'
+      ? `The JSON "meaning" field MUST be written entirely in ${targetLabel} (${targetCode}).`
+      : `The JSON "meaning" field MUST be written entirely in ${targetLabel} (${targetCode}). Do NOT use Persian or Farsi in the meaning.`;
 
   return [
     {
@@ -53,10 +47,21 @@ export function buildDictionaryLookupMessages({ word, context, targetLanguage, s
       content: `Word: "${word}"
 ${contextLine}
 Source language: ${sourceLabel}
-Explain the word briefly for a learner in ${targetLabel}.
+${meaningLanguageRule}
+Give a brief learner-friendly gloss in ${targetLabel} only.
 JSON example: {"meaning":"...","partOfSpeech":"noun"}`,
     },
   ];
+}
+
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function isPrimarilyPersianScript(text) {
+  if (typeof text !== 'string' || !text.trim()) return false;
+  const persian = (text.match(/[\u0600-\u06FF]/g) || []).length;
+  return persian / text.length > 0.35;
 }
 
 /**
@@ -101,4 +106,18 @@ export function parseDictionaryLookupResponse(raw) {
   }
 
   return null;
+}
+
+/**
+ * @param {string} prompt
+ * @param {string} targetCode
+ * @returns {boolean}
+ */
+export function dictionaryPromptMentionsPersianOutput(prompt, targetCode) {
+  if (targetCode === 'fa') return false;
+  if (/do not use persian|do not use farsi|must not use persian/i.test(prompt)) {
+    return false;
+  }
+  return /\b(?:in|to|write|explain|translate to)\s+(?:persian|farsi)\b/i.test(prompt)
+    || /(?:به\s+)(?:زبان\s+)?(?:فارسی|پارسی)/.test(prompt);
 }

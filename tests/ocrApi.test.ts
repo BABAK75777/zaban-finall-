@@ -34,7 +34,7 @@ describe('ocrApi', () => {
     );
 
     await expect(requestOcrFromImageDataUrl('data:image/jpeg;base64,abc')).rejects.toThrow(
-      'No text found in image'
+      'No readable text found in this image.'
     );
   });
 
@@ -44,12 +44,12 @@ describe('ocrApi', () => {
       vi.fn().mockResolvedValue({
         ok: false,
         status: 503,
-        json: async () => ({ error: 'OCR unavailable' }),
+        json: async () => ({ error: 'OCR unavailable', details: 'Vision model offline' }),
       })
     );
 
     await expect(requestOcrFromImageDataUrl('data:image/jpeg;base64,abc')).rejects.toThrow(
-      'OCR unavailable'
+      'Vision model offline'
     );
   });
 });

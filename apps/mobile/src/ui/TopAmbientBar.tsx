@@ -9,7 +9,7 @@ import { READING_TEST_IDS } from './testIds';
 interface TopAmbientBarProps {
   theme: ThemePalette;
   onMenuPress: () => void;
-  onAlbumPress?: () => void;
+  onCameraPress?: () => void;
   onDicPress?: () => void;
   photoLoading?: boolean;
 }
@@ -17,12 +17,12 @@ interface TopAmbientBarProps {
 export function TopAmbientBar({
   theme,
   onMenuPress,
-  onAlbumPress,
+  onCameraPress,
   onDicPress,
   photoLoading = false,
 }: TopAmbientBarProps) {
   const layout = useResponsiveLayoutMetrics();
-  const showTopActions = onAlbumPress != null || onDicPress != null;
+  const showTopActions = onCameraPress != null || onDicPress != null;
 
   return (
     <View style={[styles.wrap, { paddingHorizontal: layout.topBarPadH }]}>
@@ -43,7 +43,7 @@ export function TopAmbientBar({
 
       {showTopActions ? (
         <View style={styles.topActions}>
-          {onAlbumPress ? (
+          {onCameraPress ? (
             <Pressable
               style={({ pressed }) => [
                 styles.iconBtn,
@@ -51,17 +51,17 @@ export function TopAmbientBar({
                 pressed && { opacity: 0.88 },
                 photoLoading && { opacity: 0.6 },
               ]}
-              onPress={onAlbumPress}
+              onPress={onCameraPress}
               disabled={photoLoading}
               hitSlop={10}
               accessibilityRole="button"
-              accessibilityLabel="Photo from album or camera"
-              testID={READING_TEST_IDS.topAlbum}
+              accessibilityLabel="Take photo with camera"
+              testID={READING_TEST_IDS.topCamera}
             >
               {photoLoading ? (
                 <ActivityIndicator size="small" color={theme.accent} />
               ) : (
-                <Text style={styles.actionIcon}>🖼️</Text>
+                <Text style={styles.actionIcon}>📷</Text>
               )}
             </Pressable>
           ) : null}

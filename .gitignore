@@ -62,6 +62,23 @@ web_modules/
 .env.*.local
 !.env.example
 
+# Local secrets / credentials (never commit)
+api_key.txt
+GITHUB_SECRETS_FINAL.md
+**/credentials.json
+**/service-account*.json
+**/*serviceAccount*.json
+**/google-services.json
+**/GoogleService-Info.plist
+**/AuthKey_*.p8
+**/*.p12
+**/*.mobileprovision
+**/*.pem
+**/*.p8
+*.jks
+*.keystore
+!**/debug.keystore.example
+
 # parcel-bundler cache
 .cache
 .parcel-cache
@@ -106,3 +123,31 @@ certs/
 # Vite timestamp logs
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Expo / Metro local artifacts
+apps/mobile/.expo/
+apps/mobile/.expo-*/
+apps/mobile/.tmp-*/
+apps/mobile/android/app/build/
+apps/mobile/android/build/
+apps/mobile/android/.gradle/
+apps/mobile/ios/build/
+apps/mobile/ios/Pods/
+
+# Local build products / device dumps / QA screenshots (not source)
+*.aab
+*.apk
+*.ipa
+apps/mobile/tools/
+apps/mobile/**/chat3-*/
+apps/mobile/**/*-dump.xml
+apps/mobile/**/uidump*.xml
+backend/cache/
+backend/tmp-*.json
+backend/ai-generate-test.json
+
+# Session / local notes (optional local-only)
+LATEST_SESSION.md
+MASTER_DEBUG_HISTORY.md
+TODAY_SUMMARY.md
+report-analysis/

@@ -6,8 +6,14 @@ export const TEST_SAFE_AREA_METRICS = {
   insets: { top: 0, left: 0, right: 0, bottom: 0 },
 };
 
-export function TestSafeAreaProvider({ children }: { children: React.ReactNode }) {
-  return (
-    <SafeAreaProvider initialMetrics={TEST_SAFE_AREA_METRICS}>{children}</SafeAreaProvider>
-  );
+type Metrics = typeof TEST_SAFE_AREA_METRICS;
+
+export function TestSafeAreaProvider({
+  children,
+  initialMetrics = TEST_SAFE_AREA_METRICS,
+}: {
+  children: React.ReactNode;
+  initialMetrics?: Metrics;
+}) {
+  return <SafeAreaProvider initialMetrics={initialMetrics}>{children}</SafeAreaProvider>;
 }

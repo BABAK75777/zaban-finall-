@@ -42,6 +42,12 @@ export const READING_TEST_IDS = {
   aiModalClose: 'reading-ai-modal-close',
   aiModalDismiss: 'reading-ai-modal-dismiss',
   aiModalGenerate: 'reading-ai-modal-generate',
+  aiModalPromptFooter: 'reading-ai-modal-request-section',
+  /** Your Request + TextInput + Generate (alias of aiModalPromptFooter). */
+  aiModalRequestSection: 'reading-ai-modal-request-section',
+  aiModalFormScroll: 'reading-ai-modal-form-scroll',
+  aiModalSettingsScroll: 'reading-ai-modal-settings-scroll',
+  aiModalSettingsSection: 'reading-ai-modal-settings-section',
   aiPromptInput: 'reading-ai-prompt-input',
   aiCefrSlider: 'reading-ai-cefr-slider',
   aiCefrLabel: (level: string) => `reading-ai-cefr-${level}`,

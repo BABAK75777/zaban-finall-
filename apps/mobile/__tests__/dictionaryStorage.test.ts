@@ -11,28 +11,29 @@ import {
 } from '../src/dictionary/dictionaryStorage';
 import type { DictionaryEntry } from '../src/dictionary/dictionaryTypes';
 
-const baseEntry = (word: string): DictionaryEntry => ({
+const baseEntry = (word: string, practiceLanguage: 'fa' | 'en-US' | 'tr-TR' = 'tr-TR'): DictionaryEntry => ({
   word,
   displayWord: word,
   meaning: 'test',
-  targetLanguage: 'fa',
+  practiceLanguage,
+  targetLanguage: practiceLanguage,
   savedAt: 1,
   lookupCount: 1,
   textAppearanceCount: 1,
 });
 
 describe('dictionaryStorage helpers', () => {
-  it('finds entry by word and language', () => {
-    const entries = [baseEntry('hello')];
-    expect(findDictionaryEntry(entries, 'Hello', 'fa')?.word).toBe('hello');
-    expect(findDictionaryEntry(entries, 'hello', 'de')).toBeUndefined();
+  it('finds entry by word and practice language', () => {
+    const entries = [baseEntry('hello', 'tr-TR')];
+    expect(findDictionaryEntry(entries, 'Hello', 'tr-TR')?.word).toBe('hello');
+    expect(findDictionaryEntry(entries, 'hello', 'en-US')).toBeUndefined();
   });
 
   it('upserts and increments lookup count', () => {
     const first = upsertDictionaryEntry([], {
       displayWord: 'run',
       meaning: 'دویدن',
-      targetLanguage: 'fa',
+      practiceLanguage: 'tr-TR',
     });
     expect(first).toHaveLength(1);
     expect(first[0].lookupCount).toBe(1);
@@ -40,7 +41,7 @@ describe('dictionaryStorage helpers', () => {
     const second = upsertDictionaryEntry(first, {
       displayWord: 'Run',
       meaning: 'دویدن',
-      targetLanguage: 'fa',
+      practiceLanguage: 'tr-TR',
     });
     expect(second).toHaveLength(1);
     expect(second[0].lookupCount).toBe(2);
@@ -57,47 +58,50 @@ describe('dictionaryStorage helpers', () => {
     expect(otherText[0].textAppearanceCount).toBe(3);
   });
 
-  it('builds practice words for AI prioritizing under-practiced entries', () => {
+  it('builds practice words for AI prioritizing starred and older due entries', () => {
     const entries = [
-      { ...baseEntry('done'), textAppearanceCount: 3 },
-      { ...baseEntry('needs'), textAppearanceCount: 1 },
+      { ...baseEntry('done'), usedCount: 2, targetUses: 3 as const, savedAt: 10 },
+      { ...baseEntry('needs'), usedCount: 0, targetUses: 3 as const, savedAt: 5, difficultyStarred: true },
+      { ...baseEntry('also'), usedCount: 0, targetUses: 3 as const, savedAt: 1 },
     ];
-    expect(getPracticeWordsForAi(entries)).toEqual(['needs', 'done']);
+    expect(getPracticeWordsForAi(entries)).toEqual(['needs', 'also', 'done']);
   });
 
-  it('detects when a practice word met AI thresholds', () => {
-    const text =
-      'The airport was busy today. I went to the airport again after lunch. My friend met me at the airport gate. We waited near the airport lounge until boarding.';
+  it('detects when a practice word appears in generated text', () => {
+    const text = 'I went to the airport today.';
     expect(shouldRemoveWordAfterAiPractice('airport', text)).toBe(true);
     expect(shouldRemoveWordAfterAiPractice('ticket', text)).toBe(false);
   });
 
-  it('removes practiced words from saved list after AI generation', () => {
-    const entries = [baseEntry('airport'), baseEntry('ticket')];
-    const text =
-      'The airport was busy today. I went to the airport again after lunch. My friend met me at the airport gate. We waited near the airport lounge until boarding.';
+  it('increments usedCount after AI generation when word appears', () => {
+    const entries = [
+      { ...baseEntry('airport'), usedCount: 0, targetUses: 3 as const },
+      { ...baseEntry('ticket'), usedCount: 0, targetUses: 3 as const },
+    ];
+    const text = 'The airport was busy today.';
     const next = removePracticeWordsUsedInAiText(entries, text, ['airport', 'ticket']);
-    expect(next.map((e) => e.word)).toEqual(['ticket']);
+    expect(next.find((e) => e.word === 'airport')?.usedCount).toBe(1);
+    expect(next.find((e) => e.word === 'ticket')).toBeTruthy();
   });
 
   it('increments lookup count for saved entries', () => {
-    const entries = [baseEntry('hello')];
-    const next = incrementLookupCount(entries, 'Hello', 'fa');
+    const entries = [baseEntry('hello', 'tr-TR')];
+    const next = incrementLookupCount(entries, 'Hello', 'tr-TR');
     expect(next[0].lookupCount).toBe(2);
   });
 
-  it('removes dictionary entry by word and language', () => {
-    const entries = [baseEntry('hello'), baseEntry('world')];
-    const next = removeDictionaryEntry(entries, 'Hello', 'fa');
+  it('removes dictionary entry by word and practice language', () => {
+    const entries = [baseEntry('hello', 'tr-TR'), baseEntry('world', 'tr-TR')];
+    const next = removeDictionaryEntry(entries, 'Hello', 'tr-TR');
     expect(next).toHaveLength(1);
     expect(next[0].word).toBe('world');
   });
 
-  it('adds manual dictionary entry and merges duplicates', () => {
+  it('adds manual dictionary entry and merges duplicates within same practice language', () => {
     const first = addManualDictionaryEntry([], {
       displayWord: 'Run',
       meaning: 'دویدن',
-      targetLanguage: 'fa',
+      practiceLanguage: 'tr-TR',
     });
     expect(first).toHaveLength(1);
     expect(first[0].lookupCount).toBe(0);
@@ -105,7 +109,7 @@ describe('dictionaryStorage helpers', () => {
     const merged = addManualDictionaryEntry(first, {
       displayWord: 'run',
       meaning: 'راندن',
-      targetLanguage: 'fa',
+      practiceLanguage: 'tr-TR',
     });
     expect(merged).toHaveLength(1);
     expect(merged[0].meaning).toBe('راندن');

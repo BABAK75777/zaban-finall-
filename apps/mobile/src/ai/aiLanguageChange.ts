@@ -4,6 +4,11 @@ import {
   migrateAiGenerationLanguageId,
   resolvePracticeLanguage,
 } from '../dictionary/dictionaryLanguages';
+import {
+  assertPracticeLanguageProcessable,
+  IN_PROGRESS_DIALOG_MESSAGE,
+  isPracticeLanguageProductActive,
+} from '../dictionary/languageAvailability';
 import type { PracticeWordForAi } from '../dictionary/practiceQueueTypes';
 import { DEFAULT_CEFR_INDEX, cefrLevelFromIndex, type CefrLevel } from './cefrLevels';
 import { CODE_GENERATION_USER_MESSAGE } from '../utils/aiPromptValidation';
@@ -47,6 +52,10 @@ export function resolveAiLanguageAcceptAction(params: {
     params.acceptedLanguageId,
     DEFAULT_PRACTICE_LANGUAGE
   );
+  // Unavailable / In Progress languages must never be accepted or regenerate.
+  if (!isPracticeLanguageProductActive(accepted)) {
+    return 'noop';
+  }
   if (saved === accepted) return 'noop';
   if (!params.hasGeneratedText) return 'save_only';
   return 'save_and_regenerate';
@@ -69,6 +78,7 @@ export function buildLanguageSwitchGeneratePayload(
   sourceText: string
 ): AiGeneratePayload {
   const id = migrateAiGenerationLanguageId(languageId, DEFAULT_PRACTICE_LANGUAGE);
+  // Caller + requestAiGenerate still gate; keep payload ids canonical for active langs only.
   const lang = resolvePracticeLanguage(id);
   const label = lang?.label ?? id;
   const locale = lang?.locale ?? id;
@@ -97,6 +107,16 @@ export async function requestAiGenerate(
   apiBaseUrl: string,
   payload: AiGeneratePayload
 ): Promise<{ blocked: boolean; text: string; userMessage?: string }> {
+  // Central Practice-language product guard — must run before any network call.
+  const guard = assertPracticeLanguageProcessable(payload.targetLanguage);
+  if (!guard.allowed) {
+    return {
+      blocked: true,
+      text: '',
+      userMessage: IN_PROGRESS_DIALOG_MESSAGE,
+    };
+  }
+
   let response: Response;
   try {
     response = await fetchWithTimeout(
@@ -104,7 +124,7 @@ export async function requestAiGenerate(
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, targetLanguage: guard.languageId }),
       },
       REQUEST_TIMEOUT_MS.ai,
       'ai_generate'

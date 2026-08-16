@@ -6,13 +6,16 @@ const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 export default defineConfig({
   resolve: {
-    alias: {
-      'expo-file-system': path.join(repoRoot, 'tests/mocks/expo-file-system.ts'),
-      '@react-native-async-storage/async-storage': path.join(
-        repoRoot,
-        'tests/mocks/async-storage.ts'
-      ),
-    },
+    alias: [
+      {
+        find: /^expo-file-system(\/legacy)?$/,
+        replacement: path.join(repoRoot, 'tests/mocks/expo-file-system.ts'),
+      },
+      {
+        find: '@react-native-async-storage/async-storage',
+        replacement: path.join(repoRoot, 'tests/mocks/async-storage.ts'),
+      },
+    ],
   },
   test: {
     globals: true,

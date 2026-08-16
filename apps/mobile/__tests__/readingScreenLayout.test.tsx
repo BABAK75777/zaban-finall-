@@ -49,7 +49,7 @@ function renderReadingControls(width: number) {
           <TopAmbientBar
             theme={theme}
             onMenuPress={() => {}}
-            onAlbumPress={() => {}}
+            onCameraPress={() => {}}
             onDicPress={() => {}}
           />
           <HeroSentence

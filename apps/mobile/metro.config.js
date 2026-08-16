@@ -28,9 +28,10 @@ config.resolver.blockList = metroBuildExclusions;
 config.watchFolders = [monorepoRoot];
 
 if (process.platform === 'win32') {
+  // Metro 0.81+: useWatchman lives on resolver, not watcher.
+  config.resolver.useWatchman = false;
   config.watcher = {
     ...config.watcher,
-    useWatchman: false,
     healthCheck: {
       enabled: false,
     },
@@ -102,6 +103,13 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
       return defaultResolveRequest(context, EXPO_ROUTER_ENTRY, platform);
     }
     return context.resolveRequest(context, EXPO_ROUTER_ENTRY, platform);
+  }
+
+  if (moduleName === '@zaban/dictionary-languages') {
+    return {
+      type: 'sourceFile',
+      filePath: path.resolve(monorepoRoot, 'packages/dictionary-languages/index.js'),
+    };
   }
 
   if (moduleName === '@zaban/tts-mobile') {

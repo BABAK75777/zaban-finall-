@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -142,9 +143,6 @@ function SliderRow({ title, preset, value, onChange, theme, onDragStart, onDragE
   );
 }
 
-const KEYBOARD_FOOTER_HEIGHT = 36;
-const PINNED_INPUT_HEIGHT = 88;
-
 export function AiPromptModal({
   visible,
   onClose,
@@ -160,21 +158,29 @@ export function AiPromptModal({
   generationTokenRef,
 }: AiPromptModalProps) {
   const insets = useSafeAreaInsets();
-  const scrollRef = useRef<ScrollView>(null);
+  const { height: windowHeight } = useWindowDimensions();
   const inputRef = useRef<TextInput>(null);
   const generateInFlightRef = useRef(false);
   const [settings, setSettings] = useState<AiPromptSettings>(defaultSettings);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  /** Android Modal does not reliably resize with adjustResize — track height explicitly. */
+  const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [scrollEnabled, setScrollEnabled] = useState(true);
 
   const colors = theme;
   const keyboardAppearance = themeId === 'light' || themeId === 'cream' ? 'light' : 'dark';
-  const keyboardOpen = keyboardHeight > 0;
-  const keyboardBottom = Platform.OS === 'android' ? keyboardHeight : 0;
-  const scrollBottomPadding = keyboardOpen
-    ? keyboardHeight + KEYBOARD_FOOTER_HEIGHT + space.md
-    : insets.bottom + space.md;
+  const panelTopMargin = Math.max(16, insets.top);
+  /** Viewport-relative bottom breathing room inside the unified form scroll. */
+  const formScrollBottomPad = Math.max(
+    space.md,
+    Math.round(windowHeight * (keyboardOpen ? 0.02 : 0.04))
+  );
+  /**
+   * Android Modal is a separate window — activity adjustResize does not shrink the sheet.
+   * Lift via backdrop paddingBottom; iOS relies on KeyboardAvoidingView padding.
+   */
+  const androidKeyboardOpen = Platform.OS === 'android' && androidKeyboardHeight > 0;
 
   const handleSliderDragStart = useCallback(() => {
     setScrollEnabled(false);
@@ -189,10 +195,15 @@ export function AiPromptModal({
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
     const showSub = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
+      setKeyboardOpen(true);
+      if (Platform.OS === 'android') {
+        const height = Math.max(0, Math.round(event.endCoordinates?.height ?? 0));
+        setAndroidKeyboardHeight(height);
+      }
     });
     const hideSub = Keyboard.addListener(hideEvent, () => {
-      setKeyboardHeight(0);
+      setKeyboardOpen(false);
+      setAndroidKeyboardHeight(0);
     });
 
     return () => {
@@ -203,7 +214,8 @@ export function AiPromptModal({
 
   useEffect(() => {
     if (!visible) {
-      setKeyboardHeight(0);
+      setKeyboardOpen(false);
+      setAndroidKeyboardHeight(0);
       setGenerating(false);
       setScrollEnabled(true);
       generateInFlightRef.current = false;
@@ -213,23 +225,6 @@ export function AiPromptModal({
   useEffect(() => {
     onGeneratingChange?.(generating);
   }, [generating, onGeneratingChange]);
-
-  const focusPromptInput = useCallback(() => {
-    const delay = Platform.OS === 'android' ? 160 : 60;
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    }, delay);
-  }, []);
-
-  useEffect(() => {
-    if (keyboardHeight > 0) {
-      const delay = Platform.OS === 'android' ? 80 : 40;
-      const timer = setTimeout(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
-      }, delay);
-      return () => clearTimeout(timer);
-    }
-  }, [keyboardHeight]);
 
   const patch = useCallback((partial: Partial<AiPromptSettings>) => {
     setSettings((prev) => ({ ...prev, ...partial }));
@@ -330,13 +325,13 @@ export function AiPromptModal({
     onClose();
   }, [onClose]);
 
-  const generateButton = (compact: boolean) => (
+  const generateButton = (
     <Pressable
       onPress={() => void handleGenerate()}
       disabled={generating}
       style={({ pressed }) => [
         styles.generateBtn,
-        compact && styles.generateBtnCompact,
+        keyboardOpen && styles.generateBtnKeyboard,
         {
           backgroundColor: colors.selection.bg,
           borderColor: colors.selection.border,
@@ -353,26 +348,12 @@ export function AiPromptModal({
       {generating ? (
         <View style={styles.generateLoadingRow}>
           <ActivityIndicator color={colors.selection.text} size="small" />
-          <Text
-            style={[
-              styles.generateLabel,
-              compact && styles.generateLabelCompact,
-              { color: colors.selection.text },
-            ]}
-          >
+          <Text style={[styles.generateLabel, { color: colors.selection.text }]}>
             Generating…
           </Text>
         </View>
       ) : (
-        <Text
-          style={[
-            styles.generateLabel,
-            compact && styles.generateLabelCompact,
-            { color: colors.selection.text },
-          ]}
-        >
-          Generate
-        </Text>
+        <Text style={[styles.generateLabel, { color: colors.selection.text }]}>Generate</Text>
       )}
     </Pressable>
   );
@@ -394,12 +375,12 @@ export function AiPromptModal({
           { color: colors.inputText },
         ]}
         multiline
+        scrollEnabled
         maxLength={AI_PROMPT_MAX_LENGTH}
         placeholder="What do you want to practice today?"
         placeholderTextColor={colors.inputPlaceholder}
         value={settings.prompt}
         onChangeText={(prompt) => patch({ prompt })}
-        onFocus={focusPromptInput}
         keyboardAppearance={keyboardAppearance}
         cursorColor={colors.accent}
         selectionColor={colors.accentSoft}
@@ -425,6 +406,123 @@ export function AiPromptModal({
     })
   ).current;
 
+  const settingsFields = (
+    <View testID={READING_TEST_IDS.aiModalSettingsSection}>
+      <CefrLevelSlider
+        valueIndex={settings.cefrIndex}
+        onChange={(cefrIndex) => patch({ cefrIndex })}
+        onDragStart={handleSliderDragStart}
+        onDragEnd={handleSliderDragEnd}
+        theme={theme}
+      />
+
+      {onOpenAiGenerationLanguage ? (
+        <Pressable
+          onPress={onOpenAiGenerationLanguage}
+          accessibilityRole="button"
+          accessibilityLabel={`AI Generation Language ${dictionaryLanguageLabel(dictionaryTargetLanguage)}`}
+          testID={READING_TEST_IDS.settingsAiLanguage}
+          style={({ pressed }) => [
+            styles.languageRow,
+            glassStyle(theme),
+            { borderColor: colors.border },
+            pressed && { opacity: 0.88 },
+          ]}
+        >
+          <Text style={[styles.languageRowLabel, { color: colors.textDim }]}>
+            AI Generation Language
+          </Text>
+          <View style={styles.languageRowValueWrap}>
+            <Text
+              style={[styles.languageRowValue, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              {dictionaryLanguageLabel(dictionaryTargetLanguage)}
+            </Text>
+            <Text style={[styles.languageRowChevron, { color: colors.textMuted }]}>˅</Text>
+          </View>
+        </Pressable>
+      ) : null}
+
+      <SliderRow
+        title="Tone / Style"
+        preset="toneStyle"
+        value={settings.tone}
+        onChange={(tone) => patch({ tone })}
+        onDragStart={handleSliderDragStart}
+        onDragEnd={handleSliderDragEnd}
+        theme={theme}
+      />
+
+      <SliderRow
+        title="Sentence Length"
+        preset="textLength"
+        value={settings.textLength}
+        onChange={(textLength) => patch({ textLength })}
+        onDragStart={handleSliderDragStart}
+        onDragEnd={handleSliderDragEnd}
+        theme={theme}
+      />
+
+      <View style={styles.featureRow}>
+        {FEATURE_TOGGLES.map((feat) => {
+          const on = settings[feat.key];
+          return (
+            <Pressable
+              key={feat.key}
+              onPress={() => toggleFeature(feat.key)}
+              style={({ pressed }) => [
+                styles.featureChip,
+                glassStyle(theme),
+                {
+                  borderColor: on ? colors.selection.border : colors.border,
+                  backgroundColor: on ? colors.selection.bg : theme.glass.bg,
+                },
+                pressed && { opacity: 0.88 },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.featureChipText,
+                  { color: on ? colors.selection.text : colors.textMuted },
+                ]}
+                numberOfLines={2}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
+                {on ? '✓ ' : ''}
+                {feat.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  const requestSection = (
+    <View
+      style={[
+        styles.promptSectionInScroll,
+        keyboardOpen && styles.promptFooterKeyboard,
+        { borderTopColor: colors.border },
+      ]}
+      testID={READING_TEST_IDS.aiModalRequestSection}
+    >
+      <Text
+        style={[
+          styles.sectionTitle,
+          styles.promptSectionTitle,
+          { color: colors.textDim },
+        ]}
+      >
+        Your Request
+      </Text>
+      {promptField}
+      {generateButton}
+    </View>
+  );
+
   return (
     <Modal
       visible={visible}
@@ -434,21 +532,36 @@ export function AiPromptModal({
       statusBarTranslucent
     >
       <Pressable
-        style={styles.backdrop}
+        style={[
+          styles.backdrop,
+          // Android Modal: lift content above keyboard (adjustResize does not resize Modal).
+          androidKeyboardOpen && { paddingBottom: androidKeyboardHeight },
+        ]}
         onPress={handleClose}
         accessibilityLabel="Dismiss"
         testID={READING_TEST_IDS.aiModalDismiss}
       >
-        <Pressable
-          style={[styles.panel, { backgroundColor: colors.bg, borderColor: colors.border }]}
-          onPress={(e) => e.stopPropagation()}
+        {/*
+          Use View (not Pressable) for the sheet: a Pressable ancestor steals vertical
+          pans from ScrollView on Android and makes the form feel like two regions.
+        */}
+        <View
+          style={[
+            styles.panel,
+            {
+              backgroundColor: colors.bg,
+              borderColor: colors.border,
+              // Clear status bar once — do not also pad via SafeArea top (double inset).
+              marginTop: panelTopMargin,
+            },
+          ]}
           testID={READING_TEST_IDS.aiModal}
         >
-          <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+          <SafeAreaView style={styles.safe} edges={[]}>
             <KeyboardAvoidingView
-              style={[styles.flex, styles.flexRelative]}
+              style={styles.flex}
               behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+              keyboardVerticalOffset={0}
             >
               <View style={styles.header} {...swipeCloseResponder.panHandlers}>
                 <View style={styles.headerCenter}>
@@ -472,133 +585,33 @@ export function AiPromptModal({
                 </Pressable>
               </View>
 
+              {/*
+                ONE form ScrollView (Android + iOS): settings + Your Request + Generate
+                flow together — no fixed footer sibling that creates a middle gap.
+              */}
               <ScrollView
-                ref={scrollRef}
                 style={styles.scroll}
                 contentContainerStyle={[
                   styles.scrollContent,
-                  { paddingBottom: scrollBottomPadding },
+                  {
+                    paddingBottom: keyboardOpen
+                      ? space.sm
+                      : insets.bottom + formScrollBottomPad,
+                  },
                 ]}
                 showsVerticalScrollIndicator={false}
                 scrollEnabled={scrollEnabled}
                 keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="interactive"
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                 nestedScrollEnabled
+                testID={READING_TEST_IDS.aiModalFormScroll}
               >
-                <CefrLevelSlider
-                  valueIndex={settings.cefrIndex}
-                  onChange={(cefrIndex) => patch({ cefrIndex })}
-                  onDragStart={handleSliderDragStart}
-                  onDragEnd={handleSliderDragEnd}
-                  theme={theme}
-                />
-
-                {onOpenAiGenerationLanguage ? (
-                  <Pressable
-                    onPress={onOpenAiGenerationLanguage}
-                    accessibilityRole="button"
-                    accessibilityLabel={`AI Generation Language ${dictionaryLanguageLabel(dictionaryTargetLanguage)}`}
-                    testID={READING_TEST_IDS.settingsAiLanguage}
-                    style={({ pressed }) => [
-                      styles.languageRow,
-                      glassStyle(theme),
-                      { borderColor: colors.border },
-                      pressed && { opacity: 0.88 },
-                    ]}
-                  >
-                    <Text style={[styles.languageRowLabel, { color: colors.textDim }]}>
-                      AI Generation Language
-                    </Text>
-                    <View style={styles.languageRowValueWrap}>
-                      <Text
-                        style={[styles.languageRowValue, { color: colors.text }]}
-                        numberOfLines={1}
-                      >
-                        {dictionaryLanguageLabel(dictionaryTargetLanguage)}
-                      </Text>
-                      <Text style={[styles.languageRowChevron, { color: colors.textMuted }]}>˅</Text>
-                    </View>
-                  </Pressable>
-                ) : null}
-
-                <SliderRow
-                  title="Tone / Style"
-                  preset="toneStyle"
-                  value={settings.tone}
-                  onChange={(tone) => patch({ tone })}
-                  onDragStart={handleSliderDragStart}
-                  onDragEnd={handleSliderDragEnd}
-                  theme={theme}
-                />
-
-                <SliderRow
-                  title="Sentence Length"
-                  preset="textLength"
-                  value={settings.textLength}
-                  onChange={(textLength) => patch({ textLength })}
-                  onDragStart={handleSliderDragStart}
-                  onDragEnd={handleSliderDragEnd}
-                  theme={theme}
-                />
-
-                <View style={styles.featureRow}>
-                  {FEATURE_TOGGLES.map((feat) => {
-                    const on = settings[feat.key];
-                    return (
-                      <Pressable
-                        key={feat.key}
-                        onPress={() => toggleFeature(feat.key)}
-                        style={({ pressed }) => [
-                          styles.featureChip,
-                          glassStyle(theme),
-                          {
-                            borderColor: on ? colors.selection.border : colors.border,
-                            backgroundColor: on ? colors.selection.bg : theme.glass.bg,
-                          },
-                          pressed && { opacity: 0.88 },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.featureChipText,
-                            { color: on ? colors.selection.text : colors.textMuted },
-                          ]}
-                          numberOfLines={2}
-                          adjustsFontSizeToFit
-                          minimumFontScale={0.8}
-                        >
-                          {on ? '✓ ' : ''}
-                          {feat.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-
-                <Text style={[styles.sectionTitle, styles.promptSectionTitle, { color: colors.textDim }]}>
-                  Your Request
-                </Text>
-                {promptField}
-                {!keyboardOpen ? generateButton(false) : null}
+                {settingsFields}
+                {requestSection}
               </ScrollView>
-
-              {keyboardOpen ? (
-                <View
-                  style={[
-                    styles.keyboardFooter,
-                    {
-                      bottom: keyboardBottom,
-                      backgroundColor: colors.bg,
-                      borderTopColor: colors.border,
-                    },
-                  ]}
-                >
-                  {generateButton(true)}
-                </View>
-              ) : null}
             </KeyboardAvoidingView>
           </SafeAreaView>
-        </Pressable>
+        </View>
       </Pressable>
     </Modal>
   );
@@ -614,7 +627,6 @@ const styles = StyleSheet.create({
   },
   panel: {
     flex: 1,
-    marginTop: 48,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,
@@ -626,9 +638,6 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
     paddingHorizontal: space.lg,
-  },
-  flexRelative: {
-    position: 'relative',
   },
   header: {
     position: 'relative',
@@ -674,6 +683,14 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: {
     paddingBottom: space.md,
+    // Intentionally no flexGrow / vertical space distribution —
+    // those push Your Request away from the settings on tall screens.
+  },
+  promptSectionInScroll: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: space.md,
+    marginTop: space.md,
+    flexGrow: 0,
   },
   sliderSection: {
     marginBottom: 2,
@@ -738,58 +755,40 @@ const styles = StyleSheet.create({
     marginTop: space.sm,
   },
   promptSectionTitle: {
-    marginTop: space.xs,
+    marginTop: 0,
     marginBottom: space.sm,
+  },
+  promptFooterKeyboard: {
+    paddingTop: space.xs,
   },
   inputShell: {
     borderRadius: 16,
     padding: space.md,
-    minHeight: 148,
-    maxHeight: 220,
+    minHeight: 120,
+    maxHeight: 180,
     marginBottom: space.xs,
+    flexShrink: 1,
   },
+  /** Keyboard-open: shrink so Generate stays visible above the keyboard. */
   inputShellKeyboard: {
-    minHeight: PINNED_INPUT_HEIGHT,
-    maxHeight: PINNED_INPUT_HEIGHT,
-    marginBottom: 0,
+    minHeight: 56,
+    maxHeight: 88,
     paddingVertical: space.sm,
+    paddingHorizontal: space.md,
+    marginBottom: 0,
   },
   promptInput: {
     fontSize: 16,
     lineHeight: 24,
-    minHeight: 120,
-    maxHeight: 184,
+    minHeight: 96,
+    maxHeight: 148,
     padding: 0,
   },
   promptInputKeyboard: {
-    minHeight: 64,
-    maxHeight: 64,
     fontSize: 15,
-    lineHeight: 22,
-  },
-  segmentRow: {
-    flexDirection: 'row',
-    alignSelf: 'center',
-    width: '48%',
-    maxWidth: 188,
-    borderRadius: 9,
-    padding: 2,
-    borderWidth: 1,
-    marginBottom: space.sm,
-  },
-  segmentBtn: {
-    flex: 1,
-    borderRadius: 6,
-    paddingVertical: 4,
-    paddingHorizontal: space.xs,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  segmentLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    lineHeight: 20,
+    minHeight: 40,
+    maxHeight: 64,
   },
   featureRow: {
     flexDirection: 'row',
@@ -827,34 +826,9 @@ const styles = StyleSheet.create({
       android: { elevation: 3 },
     }),
   },
-  generateBtnCompact: {
-    marginTop: 0,
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: space.md,
-    alignSelf: 'flex-end',
-    minWidth: 96,
-    ...Platform.select({
-      ios: {
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 2,
-      },
-      android: { elevation: 1 },
-    }),
-  },
-  keyboardFooter: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    paddingHorizontal: space.lg,
-    paddingTop: space.xs,
-    paddingBottom: space.xs,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    minHeight: KEYBOARD_FOOTER_HEIGHT,
+  generateBtnKeyboard: {
+    marginTop: space.sm,
+    paddingVertical: 10,
   },
   generateLoadingRow: {
     flexDirection: 'row',
@@ -866,9 +840,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-  },
-  generateLabelCompact: {
-    fontSize: 11,
-    letterSpacing: 0.4,
   },
 });

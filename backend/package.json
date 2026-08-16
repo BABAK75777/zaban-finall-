@@ -11,6 +11,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@zaban/ai-prompt-validation": "file:../packages/ai-prompt-validation",
+    "@zaban/dictionary-languages": "file:../packages/dictionary-languages",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",

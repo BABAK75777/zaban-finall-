@@ -19,9 +19,10 @@ export function getRetentionWindowSize(splitMode: SentenceCacheSplitMode): numbe
   }
 }
 
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logRingCleanup } from './enduranceDiagnostics';
+import { uint8ArrayToBase64 } from './uint8ArrayToBase64';
 
 const AUDIO_DIR = `${FileSystem.documentDirectory}tts_sentences/`;
 const META_KEY = '@zaban/sentence_audio_cache_v1';
@@ -127,11 +128,8 @@ export async function putCachedSentenceAudio(
   await ensureAudioDir();
   const path = audioPathFor(sentenceId);
 
-  let binary = '';
-  for (let i = 0; i < audioBytes.length; i++) {
-    binary += String.fromCharCode(audioBytes[i]);
-  }
-  const base64 = btoa(binary);
+  // RN Blob cannot be constructed from Uint8Array/ArrayBufferView.
+  const base64 = uint8ArrayToBase64(audioBytes);
 
   await FileSystem.writeAsStringAsync(path, base64, {
     encoding: FileSystem.EncodingType.Base64,

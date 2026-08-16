@@ -22,7 +22,7 @@ export class OperationGuard {
    * @returns generation token if acquired, null if rejected
    */
   tryAcquire(op: PlaybackOperation): number | null {
-    if (this.active !== 'idle' && this.active !== op) {
+    if (this.active !== 'idle') {
       console.log(`[OperationGuard] rejected operation=${op} active=${this.active}`);
       logGuardTransition({
         action: 'reject',
